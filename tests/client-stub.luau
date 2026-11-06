@@ -15,9 +15,26 @@ local function signal()
 	return s
 end
 
-local Vector3 = {
+local Vector3
+Vector3 = {
 	new = function(x, y, z)
-		return { X = x or 0, Y = y or 0, Z = z or 0, Magnitude = math.sqrt((x or 0) ^ 2 + (y or 0) ^ 2 + (z or 0) ^ 2) }
+		return setmetatable(
+			{ X = x or 0, Y = y or 0, Z = z or 0, Magnitude = math.sqrt((x or 0) ^ 2 + (y or 0) ^ 2 + (z or 0) ^ 2) },
+			{
+				__add = function(a, b)
+					return Vector3.new(a.X + b.X, a.Y + b.Y, a.Z + b.Z)
+				end,
+				__sub = function(a, b)
+					return Vector3.new(a.X - b.X, a.Y - b.Y, a.Z - b.Z)
+				end,
+				__mul = function(a, b)
+					if type(b) == "number" then
+						return Vector3.new(a.X * b, a.Y * b, a.Z * b)
+					end
+					return a
+				end,
+			}
+		)
 	end,
 }
 Vector3.zero = Vector3.new(0, 0, 0)
@@ -25,6 +42,31 @@ Vector3.zero = Vector3.new(0, 0, 0)
 local Vector2 = {
 	new = function(x, y)
 		return { X = x or 0, Y = y or 0 }
+	end,
+}
+local CFrame
+CFrame = {
+	new = function(x, y, z)
+		if type(x) == "table" then
+			return { Position = x, LookVector = Vector3.new(0, 0, -1), __mul = function(a) return a end }
+		end
+		return setmetatable(
+			{ Position = Vector3.new(x or 0, y or 0, z or 0), LookVector = Vector3.new(0, 0, -1) },
+			{
+				__mul = function(a, _b)
+					return a
+				end,
+				__add = function(a, _b)
+					return a
+				end,
+			}
+		)
+	end,
+	Angles = function(_rx, _ry, _rz)
+		return CFrame.new(0, 0, 0)
+	end,
+	lookAt = function(pos, _target)
+		return CFrame.new(pos.X, pos.Y, pos.Z)
 	end,
 }
 local function colour(r, g, b)
@@ -92,6 +134,17 @@ local function newInstance(className)
 		object.MouseButton1Click = signal()
 		object.MouseButton2Click = signal()
 		object.Activated = signal()
+	end
+	if className == "Sound" then
+		function object:Play() end
+		function object:Stop() end
+	end
+	if className == "Model" then
+		object.PrimaryPart = nil
+		function object:PivotTo(_cf) end
+	end
+	if className == "UIScale" then
+		object.Scale = 1
 	end
 	if className == "RemoteEvent" then
 		object.OnClientEvent = signal()
@@ -254,6 +307,9 @@ userInput.InputChanged = signal()
 userInput.TouchEnabled = false
 rawset(userInput, "IsKeyDown", function()
 	return false
+end)
+rawset(userInput, "GetMouseLocation", function()
+	return Vector2.new(480, 320)
 end)
 
 local scriptContext = service("ScriptContext")

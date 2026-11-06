@@ -23,6 +23,7 @@ local RemotesSchema = require(sharedFolder:WaitForChild("Net", 10):WaitForChild(
 -- 2. Client modules live strictly in ReplicatedStorage.ClientModules (Template Rule #1).
 local clientModules = ReplicatedStorage:WaitForChild("ClientModules", 10)
 local Hud = require(clientModules:WaitForChild("Hud", 10))
+local SoundController = require(clientModules:WaitForChild("Audio", 10):WaitForChild("SoundController", 10))
 local ClientStore = require(clientModules:WaitForChild("UI", 10):WaitForChild("ClientStore", 10))
 local CombatHudActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("CombatHudActor", 10))
 local InventoryLayoutActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("InventoryLayoutActor", 10))
@@ -128,12 +129,22 @@ end)
 
 bindClientEvent(RemotesSchema.events.Notification, function(payload)
 	if type(payload) == "table" and type(payload.message) == "string" then
+		if payload.tone == "error" then
+			SoundController.playError()
+		elseif payload.tone == "success" then
+			SoundController.playLootChime(false)
+		end
 		combatHud.showToast(payload.message, payload.tone)
 	end
 end)
 
 bindClientEvent(RemotesSchema.events.RaidSummary, function(payload)
 	if type(payload) == "table" then
+		if payload.extracted then
+			SoundController.playLootChime(true)
+		else
+			SoundController.playError()
+		end
 		raidSummaryUi.presentSummary(payload)
 	end
 end)

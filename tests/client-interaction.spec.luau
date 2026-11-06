@@ -78,6 +78,28 @@ stateEv.OnClientEvent:Fire({
 
 local invModal = gui:FindFirstChild("TacticalInventoryModal")
 assert(invModal and invModal.Visible == true, "Opening a world crate auto-opens TacticalInventoryModal")
+assert(gui:FindFirstChild("ResponsiveScale") ~= nil, "GameHud includes responsive UIScale for docked Studio viewports")
+assert(gui:FindFirstChild("HeldItemGhost") ~= nil, "GameHud mounts HeldItemGhost cursor drag card")
+
+-- Exercise Backpack [AUTO-SORT] button & Right-Click Quick-Transfer on Crate item card
+local centerCol = invModal:FindFirstChild("CenterGridCol")
+local sortBtn = centerCol:FindFirstChild("AutoSortBackpackBtn")
+assert(sortBtn ~= nil, "Backpack header exposes AutoSortBackpackBtn")
+sortBtn.MouseButton1Click:Fire()
+
+local rightCol = invModal:FindFirstChild("RightStationCol")
+local crateView = rightCol:FindFirstChild("CrateView")
+local crateGrid = crateView:FindFirstChild("Grid_Crate")
+local crateItemsLayer = crateGrid:FindFirstChild("ItemsLayer")
+local crateItemBtn = crateItemsLayer:FindFirstChild("Item_" .. tostring(crateRifle.uid))
+assert(crateItemBtn ~= nil, "Open world crate renders BR-55 item card")
+crateItemBtn.MouseButton1Click:Fire() -- Pick up item -> activates HeldItemGhost immediately!
+runService.RenderStepped:Fire(0.016)
+assert(gui:FindFirstChild("HeldItemGhost").Visible == true, "Picking up a grid item displays HeldItemGhost")
+local rebuiltCrateItemBtn = crateItemsLayer:FindFirstChild("Item_" .. tostring(crateRifle.uid))
+assert(rebuiltCrateItemBtn ~= nil, "Re-rendered crate item card remains clickable")
+rebuiltCrateItemBtn.MouseButton2Click:Fire() -- Right-click quick-transfers & clears held state!
+assert(gui:FindFirstChild("HeldItemGhost").Visible == false, "Right-click quick-transfer clears HeldItemGhost")
 
 -- 2. Push WorldState with active Extraction Holdout & Radar Blips + Step RenderStepped
 worldEv.OnClientEvent:Fire({

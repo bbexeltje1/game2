@@ -296,6 +296,8 @@ function PrefabBuilder.buildEnemyRig(spec: {
 	shieldBubble.Shape = Enum.PartType.Ball
 	shieldBubble.Transparency = if spec.hasShield then 0.62 else 1.0
 
+	addAttachment(head, "HealthBarAnchor", Vector3.new(0, 1.4 * s, 0))
+
 	-- Floating Name + Shield Bar + Health Bar Billboard
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "VitalityBillboard"
@@ -395,6 +397,18 @@ function PrefabBuilder.buildContainer(kind: string, cframe: CFrame, locked: bool
 		true
 	)
 	model.PrimaryPart = base
+
+	local lid = makePart(
+		model,
+		"LidPivot",
+		Vector3.new(size.X * 1.02, 0.45, size.Z * 1.02),
+		cframe * CFrame.new(0, size.Y + 0.2, 0),
+		Color3.fromRGB(38, 42, 50),
+		Enum.Material.Metal,
+		true,
+		true
+	)
+	lid:SetAttribute("ClosedY", size.Y + 0.2)
 
 	makePart(
 		model,
@@ -538,6 +552,11 @@ function PrefabBuilder.buildExtractionBeacon(name: string, pos: Vector3, radius:
 	addAttachment(pylon, "SkyBeamAttachment", Vector3.new(0, 7, 0))
 	addAttachment(pylon, "SirenAttachment", Vector3.new(0, 5, 0))
 
+	local radVal = Instance.new("NumberValue")
+	radVal.Name = "ZoneRadiusValue"
+	radVal.Value = radius
+	radVal.Parent = model
+
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "BeaconBillboard"
 	bb.Size = UDim2.fromOffset(240, 44)
@@ -557,6 +576,100 @@ function PrefabBuilder.buildExtractionBeacon(name: string, pos: Vector3, radius:
 	statusLbl.TextColor3 = Color3.fromRGB(115, 228, 255)
 	statusLbl.Text = name .. "\n[E] CALL EXTRACTION"
 	statusLbl.Parent = bb
+
+	return model
+end
+
+-- Builds a harvestable S.T.A.L.K.E.R.-inspired Anomaly Relic Cluster inside Hazard Zones
+function PrefabBuilder.buildAnomalyNode(id: string, pos: Vector3): Model
+	local custom = findCustomOverride("POI.AnomalyNode")
+	if custom then
+		custom:PivotTo(CFrame.new(pos))
+		return custom
+	end
+
+	local model = Instance.new("Model")
+	model.Name = id
+
+	local pedestal = makePart(
+		model,
+		"Pedestal",
+		Vector3.new(3.4, 0.8, 3.4),
+		CFrame.new(pos),
+		Color3.fromRGB(48, 44, 58),
+		Enum.Material.Slate,
+		true,
+		true
+	)
+	model.PrimaryPart = pedestal
+
+	local crystal = makePart(
+		model,
+		"CrystalCore",
+		Vector3.new(1.5, 2.8, 1.5),
+		CFrame.new(pos + Vector3.new(0, 2.4, 0)) * CFrame.Angles(math.rad(18), math.rad(35), math.rad(12)),
+		Color3.fromRGB(188, 112, 255),
+		Enum.Material.Neon,
+		true,
+		false
+	)
+
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "AnomalyLabel"
+	bb.Size = UDim2.fromOffset(180, 28)
+	bb.StudsOffset = Vector3.new(0, 3.4, 0)
+	bb.MaxDistance = 65
+	bb.Adornee = crystal
+	bb.Parent = model
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "StatusText"
+	lbl.Size = UDim2.fromScale(1, 1)
+	lbl.BackgroundColor3 = Color3.fromRGB(18, 16, 28)
+	lbl.BackgroundTransparency = 0.2
+	lbl.BorderSizePixel = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 11
+	lbl.TextColor3 = Color3.fromRGB(205, 145, 255)
+	lbl.Text = "★ ANOMALY RELIC [E] HARVEST"
+	lbl.Parent = bb
+
+	return model
+end
+
+-- Builds a graybox post-apocalyptic rusted car/truck hulk for Wasteland road cover
+function PrefabBuilder.buildRustedVehicle(cframe: CFrame): Model
+	local custom = findCustomOverride("Prop.RustedVehicle")
+	if custom then
+		custom:PivotTo(cframe)
+		return custom
+	end
+
+	local model = Instance.new("Model")
+	model.Name = "Prop.RustedVehicle"
+
+	local chassis = makePart(
+		model,
+		"Chassis",
+		Vector3.new(6.8, 2.4, 13.5),
+		cframe * CFrame.new(0, 1.8, 0),
+		Color3.fromRGB(96, 68, 56),
+		Enum.Material.CorrodedMetal,
+		true,
+		true
+	)
+	model.PrimaryPart = chassis
+
+	makePart(
+		model,
+		"Cabin",
+		Vector3.new(6.2, 2.2, 6.4),
+		cframe * CFrame.new(0, 4.0, 0.8),
+		Color3.fromRGB(78, 58, 50),
+		Enum.Material.CorrodedMetal,
+		true,
+		true
+	)
 
 	return model
 end

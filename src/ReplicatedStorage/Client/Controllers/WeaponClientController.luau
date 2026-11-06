@@ -20,10 +20,12 @@ local ClientModules = ReplicatedStorage:WaitForChild("ClientModules", 10)
 
 local Config = require(Shared:WaitForChild("Config", 10))
 local WeaponCatalog = require(Shared:WaitForChild("Weapons", 10):WaitForChild("WeaponCatalog", 10))
+local SoundController = require(ClientModules:WaitForChild("Audio", 10):WaitForChild("SoundController", 10))
 local ClientStore = require(ClientModules:WaitForChild("UI", 10):WaitForChild("ClientStore", 10))
 
 export type InteractTarget = {
 	promptText: string,
+	targetInstance: Instance?,
 	execute: () -> (),
 }
 
@@ -41,11 +43,44 @@ function WeaponClientController.start(deps: {
 	local triggerHeld = false
 	local nextClientShotAt = 0
 	local currentInteract: InteractTarget? = nil
+	local hoverHighlight: Highlight? = nil
+
+	local function updateHoverHighlight(targetInst: Instance?)
+		pcall(function()
+			if not targetInst then
+				if hoverHighlight then
+					hoverHighlight.Adornee = nil
+					hoverHighlight.Enabled = false
+				end
+				return
+			end
+			if not hoverHighlight then
+				local hl = Instance.new("Highlight")
+				hl.Name = "InteractHoverHighlight"
+				hl.FillColor = Color3.fromRGB(72, 218, 255)
+				hl.OutlineColor = Color3.fromRGB(165, 242, 255)
+				hl.FillTransparency = 0.84
+				hl.OutlineTransparency = 0.12
+				hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				hl.Parent = Workspace
+				hoverHighlight = hl
+			end
+			if hoverHighlight then
+				hoverHighlight.Adornee = targetInst
+				hoverHighlight.Enabled = true
+			end
+		end)
+	end
 
 	local function fireSingleRound()
 		local snap = ClientStore.snapshot
 		local activeItem = snap.paperdoll[snap.activeWeaponSlot]
 		if not activeItem then
+			return
+		end
+		local rt = snap.weaponRuntime[snap.activeWeaponSlot]
+		if rt and (rt.isReloading or rt.isOverheated or ((rt.maxAmmo or 0) > 0 and (rt.ammo or 0) <= 0)) then
+			SoundController.playError()
 			return
 		end
 		local wStats = WeaponCatalog.computeStats(activeItem, snap.stats)
@@ -54,6 +89,7 @@ function WeaponClientController.start(deps: {
 			origin = origin,
 			direction = dir,
 		})
+		SoundController.playWeaponFire(activeItem.baseId)
 		ClientStore.ui.reticleBloom = math.min(1.5, ClientStore.ui.reticleBloom + 0.28)
 		nextClientShotAt = os.clock() + wStats.shotInterval
 	end
@@ -110,8 +146,34 @@ function WeaponClientController.start(deps: {
 						local itemName = if lbl then lbl.Text else "ITEM"
 						bestTarget = {
 							promptText = "[E] LOOT " .. itemName,
+							targetInstance = dropModel,
 							execute = function()
+								SoundController.playLootChime(false)
 								deps.sendAction("InteractWorld", { kind = "PickupDrop", id = dropId })
+							end,
+						}
+					end
+				end
+			end
+		end
+
+		-- 2b. S.T.A.L.K.E.R. Harvestable Anomaly Relic Nodes
+		local anomaliesFolder = worldFolder:FindFirstChild("WorldAnomalies")
+		if anomaliesFolder then
+			for _, aModel in ipairs(anomaliesFolder:GetChildren()) do
+				local prim = if aModel:IsA("Model") then aModel.PrimaryPart else nil
+				local aid = aModel:GetAttribute("AnomalyId")
+				local ready = (aModel:GetAttribute("Ready") ~= false)
+				if prim and type(aid) == "string" and ready then
+					local d = (prim.Position - pPos).Magnitude
+					if d <= bestDist then
+						bestDist = d
+						bestTarget = {
+							promptText = "[E] HARVEST ANOMALY RELIC",
+							targetInstance = aModel,
+							execute = function()
+								SoundController.playLootChime(true)
+								deps.sendAction("InteractWorld", { kind = "HarvestAnomaly", id = aid })
 							end,
 						}
 					end
@@ -131,7 +193,9 @@ function WeaponClientController.start(deps: {
 						bestDist = math.min(bestDist, d)
 						bestTarget = {
 							promptText = "[E] ACTIVATE " .. bModel.Name,
+							targetInstance = bModel,
 							execute = function()
+								SoundController.playExtractionSiren()
 								deps.sendAction("InteractWorld", { kind = "TriggerExtraction", id = beaconId })
 							end,
 						}
@@ -155,7 +219,9 @@ function WeaponClientController.start(deps: {
 							promptText = if locked
 								then "[E] UNLOCK ARMORY VAULT (Requires Keycard)"
 								else "[E] SEARCH LOOT CONTAINER",
+							targetInstance = cModel,
 							execute = function()
+								SoundController.playUiClick()
 								deps.sendAction("InteractWorld", { kind = "OpenCrate", id = cid })
 							end,
 						}
@@ -178,7 +244,9 @@ function WeaponClientController.start(deps: {
 							if kind == "Deploy" and type(deployZone) == "string" then
 								bestTarget = {
 									promptText = "[E] DEPLOY SURFACE -> " .. deployZone,
+									targetInstance = inst,
 									execute = function()
+										SoundController.playExtractionSiren()
 										deps.sendAction("InteractWorld", { kind = "DeployZone", zoneId = deployZone })
 									end,
 								}
@@ -192,7 +260,9 @@ function WeaponClientController.start(deps: {
 								local targetTab = tabMap[kind] or "Stash"
 								bestTarget = {
 									promptText = "[E] OPEN " .. string.upper(kind),
+									targetInstance = inst,
 									execute = function()
+										SoundController.playUiClick()
 										ClientStore.ui.rightTab = targetTab
 										ClientStore.ui.inventoryOpen = true
 										ClientStore.notify()
@@ -250,10 +320,15 @@ function WeaponClientController.start(deps: {
 			end
 
 		elseif input.KeyCode == Enum.KeyCode.One then
+			SoundController.playUiClick()
 			deps.sendAction("WeaponAction", { action = "SwapSlot", slot = "Primary1" })
 		elseif input.KeyCode == Enum.KeyCode.Two then
+			SoundController.playUiClick()
 			deps.sendAction("WeaponAction", { action = "SwapSlot", slot = "Primary2" })
 		elseif input.KeyCode == Enum.KeyCode.R then
+			local activeItem = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
+			local wDef = if activeItem then WeaponCatalog.get(activeItem.baseId) else nil
+			SoundController.playReload(wDef ~= nil and wDef.usesHeat == true)
 			deps.sendAction("WeaponAction", { action = "ReloadOrVent" })
 		elseif input.KeyCode == Enum.KeyCode.Q then
 			local origin, dir = deps.getAimRay()
@@ -301,6 +376,7 @@ function WeaponClientController.start(deps: {
 		if promptScanAccum >= 0.15 then
 			promptScanAccum = 0
 			currentInteract = scanNearestInteractable()
+			updateHoverHighlight(if currentInteract and not ClientStore.ui.inventoryOpen then currentInteract.targetInstance else nil)
 			local nextText = if currentInteract then currentInteract.promptText else nil
 			if nextText ~= ClientStore.ui.interactPrompt then
 				ClientStore.ui.interactPrompt = nextText

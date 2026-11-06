@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local WorldZones = require(ReplicatedStorage.Shared.World.WorldZones)
+local PrefabBuilder = require(ReplicatedStorage.Shared.Assets.PrefabBuilder)
 
 local WorldBuilderService = {}
 
@@ -280,12 +281,18 @@ function WorldBuilderService.build(): {
 		end
 	end
 
-	-- Distinct Zone Landmarks (Graybox Silhouettes)
-	-- Zone 1: Collapsed Highway Overpass Deck
+	-- Distinct Zone Landmarks & Graybox Props
+	-- Zone 1: Collapsed Highway Overpass Deck + Rusted Vehicle Hulks
 	part(surfaceFolder, "OverpassDeck", Vector3.new(180, 3.5, 28), CFrame.new(-260, 18, 260) * CFrame.Angles(0, math.rad(35), 0), Color3.fromRGB(82, 80, 78), Enum.Material.Concrete)
-	part(surfaceFolder, "OverpassRamp", Vector3.new(46, 2.5, 24), CFrame.new(-188, 9, 210) * CFrame.Angles(0, math.rad(35), math.rad(-22)), Color3.fromRGB(82, 80, 78), Enum.Material.Concrete)
+	part(surfaceFolder, "OverpassRamp", Vector3.new(54, 2.5, 24), CFrame.new(-188, 9, 210) * CFrame.Angles(0, math.rad(35), math.rad(-20)), Color3.fromRGB(82, 80, 78), Enum.Material.Concrete)
+	for vIdx = 1, 4 do
+		local veh = PrefabBuilder.buildRustedVehicle(
+			CFrame.new(-195 - vIdx * 36, 0, 220 + (vIdx % 2) * 44) * CFrame.Angles(0, math.rad(vIdx * 47), 0)
+		)
+		veh.Parent = surfaceFolder
+	end
 
-	-- Zone 2: Rusted Rail Yard Shipping Containers & Watchtower
+	-- Zone 2: Rusted Rail Yard Shipping Containers + Climbable Sniper Watchtower
 	for i = 1, 5 do
 		part(
 			surfaceFolder,
@@ -296,10 +303,14 @@ function WorldBuilderService.build(): {
 			Enum.Material.CorrodedMetal
 		)
 	end
+	part(surfaceFolder, "WatchtowerPlatform", Vector3.new(18, 1.5, 18), CFrame.new(295, 14, 220), Color3.fromRGB(68, 72, 82), Enum.Material.DiamondPlate)
+	part(surfaceFolder, "WatchtowerRamp", Vector3.new(6, 1.2, 28), CFrame.new(295, 7, 200) * CFrame.Angles(math.rad(-28), 0, 0), Color3.fromRGB(78, 82, 92), Enum.Material.DiamondPlate)
 
-	-- Zone 3: Bio-Metro Arches
+	-- Zone 3: Bio-Metro Arches + Glowing Spore Pods
 	for i = 1, 4 do
 		part(surfaceFolder, "MetroArch_" .. tostring(i), Vector3.new(34, 16, 5), CFrame.new(-220 - i * 36, 8, -220 - i * 32), Color3.fromRGB(52, 66, 58), Enum.Material.Concrete)
+		local pod = part(surfaceFolder, "SporePod_" .. tostring(i), Vector3.new(4.5, 6.5, 4.5), CFrame.new(-235 - i * 34, 3.0, -205 - i * 30), Color3.fromRGB(115, 238, 92), Enum.Material.Neon, 0.25, true)
+		pod.Shape = Enum.PartType.Ball
 	end
 
 	-- Zone 4: Shattered Reactor Cooling Tower & Glowing Core

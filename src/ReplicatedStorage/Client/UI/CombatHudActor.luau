@@ -8,7 +8,9 @@
 --   4. Bottom-Right 2-Weapon Cards, Ammo / Sol-Coil Plasma Heat Gauge, [Q] Ordnance & [3-6] Belt Slots
 --   5. Center Dynamic Bloom Crosshair + Color-Coded Hitmarker + Damage Readout + [E] Contextual Prompt
 
+local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared", 10)
 local ClientModules = ReplicatedStorage:WaitForChild("ClientModules", 10)
@@ -17,6 +19,7 @@ local Config = require(Shared:WaitForChild("Config", 10))
 local WorldZones = require(Shared:WaitForChild("World", 10):WaitForChild("WorldZones", 10))
 local WeaponCatalog = require(Shared:WaitForChild("Weapons", 10):WaitForChild("WeaponCatalog", 10))
 local LayoutActor = require(ClientModules:WaitForChild("Core", 10):WaitForChild("LayoutActor", 10))
+local SoundController = require(ClientModules:WaitForChild("Audio", 10):WaitForChild("SoundController", 10))
 local Theme = require(ClientModules:WaitForChild("UI", 10):WaitForChild("Theme", 10))
 local ClientStore = require(ClientModules:WaitForChild("UI", 10):WaitForChild("ClientStore", 10))
 
@@ -361,6 +364,37 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 
 	local hitmarkerHideAt = 0
 	local toastHideAt = 0
+	local lastShieldVal = 100
+	local wasShieldStunned = false
+	local nextLowShieldBeepAt = 0
+
+	-- Halo `hud_nav_points` 3D Screen-Projected Waypoint Pool (4 Extraction Beacons)
+	local navpointWidgets: { { box: Frame, lbl: TextLabel } } = {}
+	for i = 1, 4 do
+		local navBox = Theme.frame(
+			root,
+			"Navpoint_" .. tostring(i),
+			UDim2.fromOffset(148, 22),
+			UDim2.fromOffset(0, 0),
+			Theme.bgPanel,
+			0.25
+		)
+		navBox.Visible = false
+		Theme.addCorner(navBox, 5)
+		Theme.addStroke(navBox, Theme.shieldCyan, 1, 0.35)
+		local navLbl = Theme.label(
+			navBox,
+			"Tag",
+			"▲ BEACON 0m",
+			UDim2.fromScale(1, 1),
+			UDim2.fromOffset(0, 0),
+			Enum.Font.GothamBold,
+			10,
+			Theme.shieldCyan,
+			Enum.TextXAlignment.Center
+		)
+		table.insert(navpointWidgets, { box = navBox, lbl = navLbl })
+	end
 
 	local function refreshFromStore()
 		local snap = ClientStore.snapshot
@@ -369,6 +403,18 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 		local shFrac = math.clamp(vit.shield / maxSh, 0, 1)
 		shieldFill.Size = UDim2.fromScale(shFrac, 1)
 		shieldText.Text = string.format("ENERGY SHIELD  %d / %d", vit.shield, vit.maxShield)
+
+		-- Halo Shield Audio Cues (Pop, Low-Shield Warning Beep, Recharge Hum)
+		if lastShieldVal > 0 and vit.shield <= 0 and snap.inRaid then
+			SoundController.playShieldPop()
+		elseif wasShieldStunned and vit.shieldStunRemaining <= 0 and vit.shield < vit.maxShield then
+			SoundController.playShieldRecharge()
+		elseif snap.inRaid and shFrac > 0 and shFrac <= 0.25 and os.clock() >= nextLowShieldBeepAt then
+			nextLowShieldBeepAt = os.clock() + 0.95
+			SoundController.playLowShieldBeep()
+		end
+		lastShieldVal = vit.shield
+		wasShieldStunned = (vit.shieldStunRemaining > 0)
 
 		if vit.shield <= 0 then
 			shieldFill.BackgroundColor3 = Theme.shieldWarning
@@ -518,25 +564,90 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 		tickRight.Position = UDim2.fromOffset(29 + gap, 29)
 	end
 
+	local function spawnWorldDamagePopup(worldPos: Vector3, text: string, color: Color3, isBig: boolean)
+		pcall(function()
+			local anchor = Instance.new("Part")
+			anchor.Name = "DmgFloatAnchor"
+			anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+			anchor.Transparency = 1
+			anchor.Anchored = true
+			anchor.CanCollide = false
+			anchor.CanQuery = false
+			anchor.CanTouch = false
+			anchor.Position = worldPos + Vector3.new((math.random() - 0.5) * 1.4, 0.8, (math.random() - 0.5) * 1.4)
+			anchor.Parent = Workspace
+
+			local bb = Instance.new("BillboardGui")
+			bb.Size = if isBig then UDim2.fromOffset(130, 34) else UDim2.fromOffset(96, 26)
+			bb.StudsOffset = Vector3.new(0, 1.4, 0)
+			bb.AlwaysOnTop = true
+			bb.MaxDistance = 190
+			bb.Parent = anchor
+
+			local txt = Instance.new("TextLabel")
+			txt.Size = UDim2.fromScale(1, 1)
+			txt.BackgroundTransparency = 1
+			txt.Font = Enum.Font.GothamBlack
+			txt.TextScaled = true
+			txt.TextColor3 = color
+			txt.TextStrokeTransparency = 0.2
+			txt.Text = text
+			txt.Parent = bb
+
+			task.spawn(function()
+				for stepIdx = 1, 10 do
+					task.wait(0.055)
+					if not anchor.Parent then
+						break
+					end
+					anchor.Position += Vector3.new(0, 0.22, 0)
+					txt.TextTransparency = stepIdx * 0.08
+				end
+			end)
+			Debris:AddItem(anchor, 0.68)
+		end)
+	end
+
 	local function flashHitmarker(info: { [string]: any })
 		hitmarkerLbl.Visible = true
 		hitmarkerHideAt = os.clock() + 0.45
 		local dmg = tostring(info.damage or 0)
+		local popupColor = Theme.textPrimary
+		local popupText = dmg
+
+		SoundController.playHitmarker(info.isCrit == true, info.shieldPopped == true, info.killed == true)
+
 		if info.killed then
 			hitmarkerLbl.Text = "✕ ELIMINATED (" .. dmg .. ")"
 			hitmarkerLbl.TextColor3 = Theme.positiveGreen
+			popupColor = Theme.positiveGreen
+			popupText = "✕ " .. dmg
 		elseif info.shieldPopped then
 			hitmarkerLbl.Text = "⚡ SHIELD POP! (" .. dmg .. ")"
 			hitmarkerLbl.TextColor3 = Theme.shieldCyan
+			popupColor = Theme.shieldCyan
+			popupText = "⚡ BREAK " .. dmg
 		elseif info.isCrit then
 			hitmarkerLbl.Text = "★ CRIT " .. dmg
 			hitmarkerLbl.TextColor3 = Theme.scrapAmber
+			popupColor = Theme.scrapAmber
+			popupText = dmg .. "!"
 		elseif info.shieldHit then
 			hitmarkerLbl.Text = "◈ " .. dmg
 			hitmarkerLbl.TextColor3 = Theme.shieldCyan
+			popupColor = Theme.shieldCyan
 		else
 			hitmarkerLbl.Text = "• " .. dmg
 			hitmarkerLbl.TextColor3 = Theme.textPrimary
+		end
+
+		if info.position then
+			spawnWorldDamagePopup(
+				info.position :: Vector3,
+				popupText,
+				popupColor,
+				(info.isCrit == true or info.shieldPopped == true or info.killed == true)
+			)
 		end
 	end
 
@@ -601,6 +712,36 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 
 		for i = used + 1, #radarDots do
 			radarDots[i].Visible = false
+		end
+
+		-- Project 3D Halo `hud_nav_points` Extraction Waypoints onto screen when on surface
+		local showNav = ClientStore.snapshot.inRaid
+			and not ClientStore.ui.inventoryOpen
+			and ClientStore.ui.raidSummary == nil
+		local okCam, cam = pcall(function()
+			return Workspace.CurrentCamera
+		end)
+		for idx, w in ipairs(navpointWidgets) do
+			local b = ClientStore.world.beacons[idx]
+			if showNav and okCam and cam and b then
+				local okProj, screenPt, onScreen = pcall(function()
+					return cam:WorldToViewportPoint(Vector3.new(b.x, b.y + 18, b.z))
+				end)
+				if okProj and screenPt and onScreen and screenPt.Z > 1 then
+					local distM = math.floor(
+						math.sqrt((b.x - playerPos.X) ^ 2 + (b.z - playerPos.Z) ^ 2) * 0.35 + 0.5
+					)
+					local shortName = string.sub(b.name, 1, 14)
+					w.box.Visible = true
+					w.box.Position = UDim2.fromOffset(math.floor(screenPt.X - 74), math.floor(screenPt.Y - 11))
+					w.lbl.Text = string.format("▲ %s • %dm", shortName, distM)
+					w.lbl.TextColor3 = if b.state == "BoardingWindow" then Theme.positiveGreen else Theme.shieldCyan
+				else
+					w.box.Visible = false
+				end
+			else
+				w.box.Visible = false
+			end
 		end
 	end
 

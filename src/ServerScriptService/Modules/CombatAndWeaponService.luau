@@ -30,7 +30,8 @@ function CombatAndWeaponService.init(feedbackRemote: RemoteEvent, summaryRemote:
 	raidSummaryRemote = summaryRemote
 end
 
--- Attaches the active graybox weapon silhouette to the player's character model.
+-- Attaches both the active graybox weapon (in right hand, angled forward) AND the holstered
+-- secondary weapon (slung diagonally across the player's back, Halo-style!).
 function CombatAndWeaponService.refreshCharacterWeapon(player: Player)
 	local char = player.Character
 	local profile = PlayerDataService.get(player)
@@ -38,32 +39,54 @@ function CombatAndWeaponService.refreshCharacterWeapon(player: Player)
 		return
 	end
 
-	local existing = char:FindFirstChild("EquippedGrayboxWeapon")
-	if existing then
-		existing:Destroy()
+	for _, oldName in ipairs({ "EquippedGrayboxWeapon", "HolsteredGrayboxWeapon" }) do
+		local existing = char:FindFirstChild(oldName)
+		if existing then
+			existing:Destroy()
+		end
 	end
 
-	local activeItem = profile.paperdoll[profile.activeWeaponSlot]
-	if not activeItem then
-		return
+	local activeSlot = profile.activeWeaponSlot
+	local otherSlot = if activeSlot == "Primary1" then "Primary2" else "Primary1"
+	local activeItem = profile.paperdoll[activeSlot]
+	local holsteredItem = profile.paperdoll[otherSlot]
+
+	if activeItem then
+		local hand = (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or char:FindFirstChild("HumanoidRootPart")) :: BasePart?
+		if hand then
+			local weaponModel = PrefabBuilder.buildWeapon(activeItem.baseId)
+			weaponModel.Name = "EquippedGrayboxWeapon"
+			local handle = weaponModel.PrimaryPart
+			if handle then
+				local gripCf = if hand.Name == "HumanoidRootPart"
+					then (hand.CFrame * CFrame.new(1.2, 0.2, -1.6))
+					else (hand.CFrame * CFrame.new(0, -0.85, -0.35) * CFrame.Angles(math.rad(-90), 0, 0))
+				weaponModel:PivotTo(gripCf)
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = hand
+				weld.Part1 = handle
+				weld.Parent = handle
+			end
+			weaponModel.Parent = char
+		end
 	end
 
-	local hand = (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or char:FindFirstChild("HumanoidRootPart")) :: BasePart?
-	if not hand then
-		return
+	if holsteredItem then
+		local torso = (char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")) :: BasePart?
+		if torso then
+			local backModel = PrefabBuilder.buildWeapon(holsteredItem.baseId)
+			backModel.Name = "HolsteredGrayboxWeapon"
+			local handle = backModel.PrimaryPart
+			if handle then
+				backModel:PivotTo(torso.CFrame * CFrame.new(0.15, 0.25, 0.85) * CFrame.Angles(math.rad(35), math.rad(90), math.rad(28)))
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = torso
+				weld.Part1 = handle
+				weld.Parent = handle
+			end
+			backModel.Parent = char
+		end
 	end
-
-	local weaponModel = PrefabBuilder.buildWeapon(activeItem.baseId)
-	weaponModel.Name = "EquippedGrayboxWeapon"
-	local handle = weaponModel.PrimaryPart
-	if handle then
-		weaponModel:PivotTo(hand.CFrame * CFrame.new(0.2, -0.2, -1.1))
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = hand
-		weld.Part1 = handle
-		weld.Parent = handle
-	end
-	weaponModel.Parent = char
 end
 
 local function hasOtherLivingRaidTeammate(victim: Player): boolean
@@ -134,6 +157,33 @@ function CombatAndWeaponService.damagePlayer(
 
 	local canDown = hasOtherLivingRaidTeammate(player)
 	local res = DamageMath.applyDamage(profile.vitality, packet, canDown)
+
+	-- Visual Halo Energy Shield Shimmer on the player's character rig
+	local pChar = player.Character
+	if pChar and res.totalDamage > 0 then
+		local aura = pChar:FindFirstChild("PlayerShieldAura") :: Highlight?
+		if not aura then
+			aura = Instance.new("Highlight")
+			aura.Name = "PlayerShieldAura"
+			aura.DepthMode = Enum.HighlightDepthMode.Occluded
+			aura.Parent = pChar
+		end
+		if aura then
+			aura.OutlineColor = if res.shieldPopped
+				then Color3.fromRGB(255, 82, 82)
+				elseif res.shieldDamage > 0 then Color3.fromRGB(72, 218, 255)
+				else Color3.fromRGB(255, 132, 92)
+			aura.FillColor = aura.OutlineColor
+			aura.FillTransparency = 0.72
+			aura.OutlineTransparency = 0.15
+			task.delay(0.22, function()
+				if aura and aura.Parent then
+					aura.FillTransparency = 1
+					aura.OutlineTransparency = 1
+				end
+			end)
+		end
+	end
 
 	-- Trigger Halo Overload Shield Core EMP Nova when player's shield pops!
 	if res.shieldPopped then
@@ -513,19 +563,6 @@ function CombatAndWeaponService.tick(dt: number)
 			else
 				profile.inRaid = false
 				profile.currentZoneId = "Bunker"
-			end
-
-			if doHazardTick and profile.inRaid and not profile.vitality.dead then
-				for _, hz in ipairs(WorldZones.HazardZones) do
-					local hPos = Vector3.new(hz.position.x, root.Position.Y, hz.position.z)
-					if (root.Position - hPos).Magnitude <= hz.radius then
-						CombatAndWeaponService.damagePlayer(player, {
-							amount = hz.dps * 0.5,
-							damageType = "Hazard",
-							sourceId = hz.id,
-						}, nil)
-					end
-				end
 			end
 		end
 	end

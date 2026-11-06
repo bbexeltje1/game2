@@ -52,10 +52,12 @@ try {
     { root: "Shared", segs: ["Economy", "DurabilityMath"], path: "src/ReplicatedStorage/Shared/Economy/DurabilityMath.luau" },
     { root: "Shared", segs: ["World", "EnemyCatalog"], path: "src/ReplicatedStorage/Shared/World/EnemyCatalog.luau" },
     { root: "Shared", segs: ["World", "WorldZones"], path: "src/ReplicatedStorage/Shared/World/WorldZones.luau" },
+    { root: "Shared", segs: ["Assets", "PrefabBuilder"], path: "src/ReplicatedStorage/Shared/Assets/PrefabBuilder.luau" },
   ];
 
   const clientModulesOrder = [
     { root: "ClientModules", segs: ["Hud"], path: "src/ReplicatedStorage/Client/Hud.luau" },
+    { root: "ClientModules", segs: ["Audio", "SoundController"], path: "src/ReplicatedStorage/Client/Audio/SoundController.luau" },
     { root: "ClientModules", segs: ["UI", "Theme"], path: "src/ReplicatedStorage/Client/UI/Theme.luau" },
     { root: "ClientModules", segs: ["Core", "LayoutActor"], path: "src/ReplicatedStorage/Client/Core/LayoutActor.luau" },
     { root: "ClientModules", segs: ["UI", "ClientStore"], path: "src/ReplicatedStorage/Client/UI/ClientStore.luau" },

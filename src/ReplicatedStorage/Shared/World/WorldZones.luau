@@ -197,6 +197,17 @@ local EXTRACTION_BEACONS: { BeaconDef } = {
 		waveArchetypes = { "AshScavenger", "RaiderMarksman", "AegisEnforcer", "FeralStalker" },
 	},
 	{
+		id = "Beacon_Delta",
+		name = "METRO LIFT DELTA (Bio-Metro)",
+		zoneId = "Zone3",
+		position = { x = -395, y = 1, z = -380 },
+		holdoutSeconds = 50,
+		boardingSeconds = 16,
+		cooldownSeconds = 28,
+		radius = 24,
+		waveArchetypes = { "FeralStalker", "SporeHazmat", "AegisEnforcer", "FeralStalker" },
+	},
+	{
 		id = "Beacon_Omega",
 		name = "DROPSHIP OMEGA (Reactor)",
 		zoneId = "Zone4",
@@ -234,6 +245,13 @@ local HAZARD_ZONES = {
 		dps = 15,
 		color = { r = 255, g = 125, b = 45 },
 	},
+}
+
+local ANOMALY_NODES = {
+	{ id = "Anomaly_Spore1", pos = { x = -268, y = 2.5, z = -248 }, relicPool = { "SporePearl", "QuickSilverCoil" }, respawnSec = 85 },
+	{ id = "Anomaly_Spore2", pos = { x = -358, y = 2.5, z = -338 }, relicPool = { "SporePearl", "FortuneCompass" }, respawnSec = 95 },
+	{ id = "Anomaly_Reactor1", pos = { x = 308, y = 2.5, z = -318 }, relicPool = { "SolarShard", "FortuneCompass" }, respawnSec = 100 },
+	{ id = "Anomaly_Reactor2", pos = { x = 335, y = 2.5, z = -355 }, relicPool = { "SolarShard", "QuickSilverCoil" }, respawnSec = 110 },
 }
 
 local LOOT_CONTAINERS = {
@@ -282,6 +300,7 @@ local WorldZones = {
 	Zones = ZONES,
 	ExtractionBeacons = EXTRACTION_BEACONS,
 	HazardZones = HAZARD_ZONES,
+	AnomalyNodes = ANOMALY_NODES,
 	LootContainers = LOOT_CONTAINERS,
 	EnemyCamps = ENEMY_CAMPS,
 }

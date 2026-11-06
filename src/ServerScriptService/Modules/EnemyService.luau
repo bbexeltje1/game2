@@ -7,6 +7,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Nerve = require(ReplicatedStorage.Shared.Core.Nerve)
 local Rng = require(ReplicatedStorage.Shared.Core.Rng)
@@ -18,6 +19,7 @@ local PrefabBuilder = require(ReplicatedStorage.Shared.Assets.PrefabBuilder)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local LootContainerService = require(script.Parent.LootContainerService)
+local HazardZoneService = require(script.Parent.HazardZoneService)
 
 export type EnemyInstance = {
 	id: string,
@@ -127,12 +129,42 @@ local function findNearestSurfacePlayer(origin: Vector3, maxRange: number): (Pla
 	return bestPlayer, bestPos, bestDist
 end
 
+local function advanceEnemyPosition(enemy: EnemyInstance, flatDir: Vector3, stepDist: number)
+	if stepDist <= 0.001 or flatDir.Magnitude <= 0.001 then
+		return
+	end
+	local unitDir = Vector3.new(flatDir.X, 0, flatDir.Z).Unit
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = if enemiesFolder then { enemiesFolder } else {}
+
+	local chestOrigin = enemy.position + Vector3.new(0, 2.4, 0)
+	local blocked = Workspace:Raycast(chestOrigin, unitDir * (stepDist + 2.2), rayParams)
+	local chosenDir = unitDir
+	if blocked then
+		-- Steer tangentially around graybox containers & cover walls
+		local tangent = Vector3.new(-unitDir.Z * enemy.strafeSign, 0, unitDir.X * enemy.strafeSign)
+		if not Workspace:Raycast(chestOrigin, tangent * (stepDist + 2.0), rayParams) then
+			chosenDir = tangent
+		else
+			enemy.strafeSign = -enemy.strafeSign
+			return
+		end
+	end
+
+	local nextPos = enemy.position + chosenDir * stepDist
+	local downHit = Workspace:Raycast(nextPos + Vector3.new(0, 12, 0), Vector3.new(0, -28, 0), rayParams)
+	if downHit and math.abs(downHit.Position.Y - enemy.position.Y) <= 8 then
+		nextPos = Vector3.new(nextPos.X, downHit.Position.Y, nextPos.Z)
+	end
+	enemy.position = nextPos
+end
+
 local function fireEnemyAttack(enemy: EnemyInstance, targetPlayer: Player, targetPos: Vector3, damageScale: number?)
 	if not onDamagePlayerCallback then
 		return
 	end
 	local mult = damageScale or 1.0
-	-- Subtle accuracy falloff if target is sprinting/moving fast
 	local hitRoll = aiRng:nextFloat()
 	local hitChance = if enemy.def.hasSniperTelegraph then 0.85 else 0.72
 	if hitRoll <= hitChance then
@@ -142,6 +174,9 @@ local function fireEnemyAttack(enemy: EnemyInstance, targetPlayer: Player, targe
 			isHeadshot = false,
 			sourceId = enemy.id,
 		}, enemy.position)
+	end
+	if enemy.archetypeId == "SporeHazmat" then
+		HazardZoneService.spawnAcidPool(Vector3.new(targetPos.X, 0.25, targetPos.Z), 9.5, 10, 6.5)
 	end
 	if combatFeedbackRemote then
 		combatFeedbackRemote:FireAllClients({
@@ -206,7 +241,7 @@ local ENEMY_NERVES: { [string]: Nerve.NerveHandler<EnemyInstance> } = {
 			moveVec += right * (0.55 * self.strafeSign)
 		end
 		if moveVec.Magnitude > 0.05 then
-			self.position += moveVec.Unit * (self.def.moveSpeed * dt)
+			advanceEnemyPosition(self, moveVec, self.def.moveSpeed * dt)
 		end
 		-- Tether max 145 studs from camp home so enemies don't wander off the map
 		local fromHome = self.position - self.homePos
@@ -215,6 +250,11 @@ local ENEMY_NERVES: { [string]: Nerve.NerveHandler<EnemyInstance> } = {
 		end
 
 		self.attackCooldown = math.max(0, self.attackCooldown - dt)
+		-- Feral Stalker close-mid range LeapPounce!
+		if self.archetypeId == "FeralStalker" and flatDist >= 12 and flatDist <= 28 and self.attackCooldown <= 0 then
+			keeper:setNerve("LeapPounce")
+			return
+		end
 		if dist <= self.def.attackRange and self.attackCooldown <= 0 then
 			if self.def.hasSniperTelegraph then
 				keeper:setNerve("SniperTelegraph")
@@ -258,10 +298,23 @@ local ENEMY_NERVES: { [string]: Nerve.NerveHandler<EnemyInstance> } = {
 		end
 	end,
 
+	LeapPounce = function(self, keeper, dt)
+		local fwd = Vector3.new(-math.sin(self.facingYaw), 0, -math.cos(self.facingYaw))
+		advanceEnemyPosition(self, fwd, 38 * dt)
+		if keeper:isGreaterEqualTime(0.38) then
+			self.attackCooldown = 1.6
+			local target, targetPos, _ = findNearestSurfacePlayer(self.position, 10)
+			if target and targetPos then
+				fireEnemyAttack(self, target, targetPos, 1.30)
+			end
+			keeper:setNerve("Engage")
+		end
+	end,
+
 	ShieldBreakEvade = function(self, keeper, dt)
 		-- Halo Sangheili homage: when an Aegis Enforcer's energy shield pops, it bursts sideways!
 		local right = Vector3.new(math.cos(self.facingYaw), 0, -math.sin(self.facingYaw))
-		self.position += right * (self.strafeSign * 28 * dt)
+		advanceEnemyPosition(self, right * self.strafeSign, 28 * dt)
 		if keeper:isGreaterEqualTime(0.42) then
 			keeper:setNerve("Engage")
 		end

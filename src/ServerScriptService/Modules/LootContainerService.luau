@@ -175,6 +175,11 @@ function LootContainerService.openContainer(player: Player, containerId: string)
 	end
 
 	profile.openContainerId = containerId
+	local lid = rec.model:FindFirstChild("LidPivot") :: BasePart?
+	if lid then
+		local closedY = tonumber(lid:GetAttribute("ClosedY")) or 3.2
+		lid.CFrame = CFrame.new(rec.position + Vector3.new(0, closedY + 0.9, -1.1)) * CFrame.Angles(math.rad(-55), 0, 0)
+	end
 	PlayerDataService.sendSnapshot(player, rec.grid, rec.title)
 end
 
@@ -404,6 +409,64 @@ function LootContainerService.handleInventoryAction(
 				if not GridContainer.autoPlace(targetGrid, item) then
 					GridContainer.autoPlace(src, item)
 					PlayerDataService.notify(player, "Target grid has no room!", "warn")
+				end
+			end
+		end
+	elseif action == "CompactSort" then
+		local targetName = tostring(payload.gridName or "Backpack")
+		local targetGrid = resolveGridByName(profile, targetName)
+		if targetGrid then
+			GridContainer.compactSort(targetGrid)
+		end
+	elseif action == "AutoEquipOrUse" then
+		local src = resolveGridByName(profile, tostring(payload.srcGrid or ""))
+		local uid = tostring(payload.uid or "")
+		if src and src.entries[uid] then
+			local item = src.entries[uid].item
+			if item.category == "Consumable" then
+				-- Place onto first free/matching belt slot
+				for bIdx = 1, Config.grid.beltSlots do
+					local cur = profile.belt[bIdx]
+					if not cur then
+						GridContainer.remove(src, uid)
+						profile.belt[bIdx] = item
+						break
+					elseif cur.baseId == item.baseId and cur.stack < cur.maxStack then
+						local add = math.min(cur.maxStack - cur.stack, item.stack)
+						cur.stack += add
+						item.stack -= add
+						if item.stack <= 0 then
+							GridContainer.remove(src, uid)
+							break
+						end
+					end
+				end
+			else
+				-- Pick matching Paperdoll slot automatically
+				local targetSlot: string? = nil
+				if item.category == "Weapon" then
+					targetSlot = if not profile.paperdoll.Primary1
+						then "Primary1"
+						elseif not profile.paperdoll.Primary2 then "Primary2"
+						else profile.activeWeaponSlot
+				elseif item.category == "Relic" then
+					targetSlot = if not profile.paperdoll.Relic1 then "Relic1" else "Relic2"
+				elseif GridContainer.PaperdollAllowed[item.category] then
+					targetSlot = item.category
+				end
+				if targetSlot and GridContainer.canEquipSlot(targetSlot, item) then
+					GridContainer.remove(src, uid)
+					local prev = profile.paperdoll[targetSlot]
+					profile.paperdoll[targetSlot] = item
+					if prev and not GridContainer.autoPlace(src, prev) and not GridContainer.autoPlace(profile.backpack, prev) then
+						profile.paperdoll[targetSlot] = prev
+						GridContainer.autoPlace(src, item)
+					else
+						PlayerDataService.recomputeStats(profile)
+						if onWeaponChanged then
+							onWeaponChanged(player)
+						end
+					end
 				end
 			end
 		end

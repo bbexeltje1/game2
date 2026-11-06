@@ -55,4 +55,34 @@ assert(paperdoll.Primary1 == halosEcho and halosEcho.durability == 48, "Standard
 assert(griswoldShotgun.durability == 54, "Griswold's Trench-Breaker Legendary perk halves durability tax (60 -> 54)")
 assert(DurabilityMath.getRepairCost(halosEcho) > 0, "Damaged gear reports positive Scrap repair cost")
 
-print("PASS Loot, Plasma Weapons & Wipe Durability Tax: Legendaries, Secure Case & -20% tax verified")
+-- 4. Verify WorldZones (4 Surface Beacons across Zones 1-4 + 4 Anomaly Nodes) & PrefabBuilder Contracts
+assert(#WorldZones.ExtractionBeacons == 4, "All 4 surface Wasteland zones have dedicated Extraction Beacons")
+assert(#WorldZones.AnomalyNodes == 4, "4 S.T.A.L.K.E.R. harvestable Anomaly Relic nodes configured")
+
+local gunModel = PrefabBuilder.buildWeapon("MA7Rifle")
+assert(gunModel.PrimaryPart ~= nil and gunModel.PrimaryPart:FindFirstChild("MuzzleAttachment") ~= nil, "Weapon prefab exposes MuzzleAttachment contract")
+assert(gunModel.PrimaryPart:FindFirstChild("GripAttachment") ~= nil and gunModel.PrimaryPart:FindFirstChild("SightAttachment") ~= nil, "Weapon prefab exposes Grip & Sight attachments")
+
+local enforcerDef = EnemyCatalog.Enemies.AegisEnforcer
+local enemyModel = PrefabBuilder.buildEnemyRig({
+	id = enforcerDef.id,
+	name = enforcerDef.name,
+	scale = enforcerDef.scale,
+	bodyColor = enforcerDef.bodyColor,
+	accentColor = enforcerDef.accentColor,
+	hasShield = enforcerDef.maxShield > 0,
+	hasFrontPlate = enforcerDef.hasFrontPlate,
+	isBoss = enforcerDef.isBoss,
+})
+local headPart = enemyModel:FindFirstChild("HeadHitbox")
+assert(headPart ~= nil and headPart:FindFirstChild("HealthBarAnchor") ~= nil, "Enemy prefab exposes HeadHitbox + HealthBarAnchor contract")
+
+local crateModel = PrefabBuilder.buildContainer("MilitaryLocker", CFrame.new(0, 0, 0), false)
+assert(crateModel:FindFirstChild("LidPivot") ~= nil, "Container prefab exposes LidPivot contract")
+
+local beaconModel = PrefabBuilder.buildExtractionBeacon("EXTRACTION ALPHA", Vector3.new(0, 1, 0), 22)
+assert(beaconModel:FindFirstChild("ZoneRadiusValue") ~= nil, "Beacon prefab exposes ZoneRadiusValue contract")
+assert(PrefabBuilder.buildAnomalyNode("Anomaly_Spore1", Vector3.new(0, 1, 0)).PrimaryPart ~= nil, "AnomalyNode prefab builds cleanly")
+assert(PrefabBuilder.buildRustedVehicle(CFrame.new(0, 0, 0)).PrimaryPart ~= nil, "RustedVehicle prefab builds cleanly")
+
+print("PASS Loot, Plasma Weapons, Wipe Tax & Graybox Prefab Contracts verified")

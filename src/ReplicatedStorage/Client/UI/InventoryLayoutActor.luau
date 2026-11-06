@@ -13,6 +13,7 @@ local LootRoller = require(Shared:WaitForChild("Loot", 10):WaitForChild("LootRol
 local GridContainer = require(Shared:WaitForChild("Inventory", 10):WaitForChild("GridContainer", 10))
 local DurabilityMath = require(Shared:WaitForChild("Economy", 10):WaitForChild("DurabilityMath", 10))
 local LayoutActor = require(ClientModules:WaitForChild("Core", 10):WaitForChild("LayoutActor", 10))
+local SoundController = require(ClientModules:WaitForChild("Audio", 10):WaitForChild("SoundController", 10))
 local Theme = require(ClientModules:WaitForChild("UI", 10):WaitForChild("Theme", 10))
 local ClientStore = require(ClientModules:WaitForChild("UI", 10):WaitForChild("ClientStore", 10))
 
@@ -216,13 +217,28 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 	Theme.label(
 		centerCol,
 		"BackpackTitle",
-		"RAID BACKPACK [10x5] (DROPPED ON WIPE)",
-		UDim2.fromOffset(250, 22),
+		"RAID BACKPACK [10x5]",
+		UDim2.fromOffset(175, 22),
 		UDim2.fromOffset(10, 6),
 		Enum.Font.GothamBold,
 		11,
 		Theme.scrapAmber
 	)
+
+	local sortBackpackBtn = Theme.button(
+		centerCol,
+		"AutoSortBackpackBtn",
+		"AUTO-SORT",
+		UDim2.fromOffset(76, 22),
+		UDim2.new(1, -172, 0, 6),
+		Theme.bgElevated,
+		Theme.positiveGreen,
+		10
+	)
+	sortBackpackBtn.MouseButton1Click:Connect(function()
+		SoundController.playUiClick()
+		sendAction("InventoryAction", { action = "CompactSort", gridName = "Backpack" })
+	end)
 
 	local rotateBtn = Theme.button(
 		centerCol,
@@ -406,6 +422,7 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 				end)
 
 				card.MouseButton1Click:Connect(function()
+					SoundController.playUiClick()
 					local held = ClientStore.ui.heldItem
 					if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
 						sendAction("InventoryAction", {
@@ -435,6 +452,26 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 							rotated = (item.rotated == true),
 						}
 						ClientStore.ui.selectedItem = { item = item, srcGrid = gridName }
+					end
+					ClientStore.notify()
+				end)
+
+				-- Right-Click: Quick-Equip/Belt from Backpack, or Quick-Transfer from Crate/Stash!
+				card.MouseButton2Click:Connect(function()
+					SoundController.playUiClick()
+					ClientStore.ui.heldItem = nil
+					if gridName == "Backpack" then
+						sendAction("InventoryAction", {
+							action = "AutoEquipOrUse",
+							srcGrid = "Backpack",
+							uid = item.uid,
+						})
+					else
+						sendAction("InventoryAction", {
+							action = "QuickTransfer",
+							srcGrid = gridName,
+							uid = item.uid,
+						})
 					end
 					ClientStore.notify()
 				end)
@@ -569,7 +606,21 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 
 	-- Tab Views
 	local stashView = Theme.frame(rightCol, "StashView", UDim2.new(1, -16, 1, -46), UDim2.fromOffset(8, 40), Theme.bgPanel, 1)
-	Theme.label(stashView, "Hdr", "BASTION PERSONAL STASH [10x12] (BUNKER ONLY)", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(4, 0), Enum.Font.GothamBold, 11, Theme.shieldCyan)
+	Theme.label(stashView, "Hdr", "PERSONAL STASH [10x12] (BUNKER)", UDim2.fromOffset(250, 20), UDim2.fromOffset(4, 0), Enum.Font.GothamBold, 11, Theme.shieldCyan)
+	local sortStashBtn = Theme.button(
+		stashView,
+		"AutoSortStashBtn",
+		"AUTO-SORT",
+		UDim2.fromOffset(80, 20),
+		UDim2.new(1, -84, 0, 0),
+		Theme.bgElevated,
+		Theme.positiveGreen,
+		10
+	)
+	sortStashBtn.MouseButton1Click:Connect(function()
+		SoundController.playUiClick()
+		sendAction("InventoryAction", { action = "CompactSort", gridName = "Stash" })
+	end)
 	local stashWidget = createGridWidget(stashView, "Stash", 10, 12, STASH_CELL_PX, UDim2.fromOffset(58, 24))
 	local stashRaidLockLbl = Theme.label(
 		stashView,
@@ -692,7 +743,58 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 		end)
 	end
 
+	-- Floating Held-Item Cursor Ghost Card (`DevilutionX` / Tarkov spatial drag feel!)
+	local heldGhost = Theme.frame(
+		screenGui,
+		"HeldItemGhost",
+		UDim2.fromOffset(CELL_PX, CELL_PX),
+		UDim2.fromOffset(0, 0),
+		Color3.fromRGB(36, 48, 68),
+		0.25
+	)
+	heldGhost.Visible = false
+	heldGhost.ZIndex = 50
+	Theme.addCorner(heldGhost, 4)
+	local heldGhostStroke = Theme.addStroke(heldGhost, Theme.shieldCyan, 1.5, 0.05)
+	local heldGhostLbl = Theme.label(
+		heldGhost,
+		"GhostName",
+		"",
+		UDim2.new(1, -6, 1, -4),
+		UDim2.fromOffset(3, 2),
+		Enum.Font.GothamBold,
+		10,
+		Theme.textPrimary,
+		Enum.TextXAlignment.Center
+	)
+	heldGhostLbl.ZIndex = 51
+	heldGhostLbl.TextWrapped = true
+
+	actor.onUpdate = function(_dt: number)
+		local held = ClientStore.ui.heldItem
+		if ClientStore.ui.inventoryOpen and held then
+			local w = if held.rotated then held.item.gridH else held.item.gridW
+			local h = if held.rotated then held.item.gridW else held.item.gridH
+			heldGhost.Visible = true
+			heldGhost.Size = UDim2.fromOffset(w * CELL_PX - 2, h * CELL_PX - 2)
+			heldGhostStroke.Color = Theme.rarityColor(held.item.rarity)
+			heldGhostLbl.Text = string.format("%s\n[%dx%d]", string.sub(held.item.name, 1, 14), w, h)
+			pcall(function()
+				local mousePos = UserInputService:GetMouseLocation()
+				local scaleObj = screenGui:FindFirstChild("ResponsiveScale") :: UIScale?
+				local invScale = if scaleObj and scaleObj.Scale > 0 then (1 / scaleObj.Scale) else 1
+				heldGhost.Position = UDim2.fromOffset(
+					math.floor(mousePos.X * invScale + 10),
+					math.floor(mousePos.Y * invScale + 10)
+				)
+			end)
+		else
+			heldGhost.Visible = false
+		end
+	end
+
 	local function rotateHeldItem()
+		SoundController.playItemRotate()
 		if ClientStore.ui.heldItem then
 			ClientStore.ui.heldItem.rotated = not ClientStore.ui.heldItem.rotated
 			ClientStore.notify()
@@ -710,6 +812,7 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 		if ClientStore.ui.inventoryOpen then
 			actor:appear()
 		else
+			heldGhost.Visible = false
 			actor:disappear()
 			return
 		end
@@ -719,9 +822,13 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 		if held then
 			local w = if held.rotated then held.item.gridH else held.item.gridW
 			local h = if held.rotated then held.item.gridW else held.item.gridH
-			heldStatusLbl.Text = string.format("HOLDING: %s [%dx%d]  •  Press [R] to Rotate  •  Click cell/slot to place", held.item.name, w, h)
+			heldStatusLbl.Text = string.format("HOLDING: %s [%dx%d]  •  [R] Rotate  •  Click cell/slot to place", held.item.name, w, h)
+			if actor.onUpdate then
+				actor.onUpdate(0)
+			end
 		else
-			heldStatusLbl.Text = "Click item to pick up  •  [R] Rotate  •  [SHIFT+CLICK] Quick-Transfer"
+			heldGhost.Visible = false
+			heldStatusLbl.Text = "Click: Move  •  Right-Click: Quick-Equip/Loot  •  [R] Rotate"
 		end
 
 		-- Refresh Paperdoll

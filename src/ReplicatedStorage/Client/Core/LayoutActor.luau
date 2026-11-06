@@ -30,10 +30,13 @@ local LAYOUT_NERVES: { [string]: Nerve.NerveHandler<LayoutActorObj> } = {
 		end
 	end,
 
-	Appearing = function(self, keeper, _dt)
+	Appearing = function(self, keeper, dt)
 		if keeper:isFirstStep() then
 			self.visible = true
 			self.root.Visible = true
+		end
+		if self.onUpdate then
+			self.onUpdate(dt)
 		end
 		if keeper:isGreaterEqualTime(0.10) then
 			keeper:setNerve("Active")

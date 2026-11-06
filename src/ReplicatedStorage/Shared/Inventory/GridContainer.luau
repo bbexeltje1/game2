@@ -348,6 +348,34 @@ function GridContainer.canEquipSlot(slotName: string, item: LootRoller.ItemInsta
 	return item.category == expectedCategory
 end
 
+-- Auto-sorts and tightly packs a 2D grid (merging partial stacks first, then placing largest
+-- footprint & highest-rarity items into the top-left rows).
+function GridContainer.compactSort(grid: GridData)
+	local items: { LootRoller.ItemInstance } = {}
+	for _, entry in ipairs(GridContainer.listItems(grid)) do
+		table.insert(items, entry.item)
+	end
+	grid.cells = {}
+	grid.entries = {}
+
+	table.sort(items, function(a, b)
+		local areaA = a.gridW * a.gridH
+		local areaB = b.gridW * b.gridH
+		if areaA ~= areaB then
+			return areaA > areaB
+		end
+		if a.baseId ~= b.baseId then
+			return a.baseId < b.baseId
+		end
+		return (a.ilvl or 1) > (b.ilvl or 1)
+	end)
+
+	for _, itm in ipairs(items) do
+		itm.rotated = false
+		GridContainer.autoPlace(grid, itm)
+	end
+end
+
 function GridContainer.serialize(grid: GridData): { width: number, height: number, list: { { x: number, y: number, item: any } } }
 	local list = {}
 	for _, entry in ipairs(GridContainer.listItems(grid)) do

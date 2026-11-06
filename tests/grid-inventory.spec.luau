@@ -34,4 +34,14 @@ local encoded = GridContainer.serialize(backpack)
 local decoded = GridContainer.deserialize(encoded)
 assert(#GridContainer.listItems(decoded) == #GridContainer.listItems(backpack), "Grid serialize/deserialize preserves all items")
 
-print("PASS 2D Grid Inventory: footprints, 90-deg rotation, single-item swap & stack merge verified")
+-- Compact Auto-Sort (`compactSort`) packs scattered items into top-left sorted by area & rarity
+local messy = GridContainer.new(10, 5)
+local smallCommon = LootRoller.createSpecificItem("ScrapBundle", "Common", 1, 10, 201) -- 1x1
+local bigLegendary = LootRoller.createSpecificItem("ArcMortar", "Legendary", 25, 1, 202) -- 3x2
+assert(GridContainer.place(messy, smallCommon, 10, 5, false) == true, "Small item placed at bottom-right (10,5)")
+assert(GridContainer.place(messy, bigLegendary, 5, 3, false) == true, "Big 3x2 placed in middle (5,3)")
+GridContainer.compactSort(messy)
+assert(messy.entries[bigLegendary.uid].x == 1 and messy.entries[bigLegendary.uid].y == 1, "compactSort packs largest/rarest 3x2 item at (1,1)")
+assert(messy.entries[smallCommon.uid] ~= nil and messy.entries[smallCommon.uid].y == 1, "compactSort packs remaining 1x1 item into top row")
+
+print("PASS 2D Grid Inventory: footprints, 90-deg rotation, swap, stack merge & compactSort verified")
