@@ -23,7 +23,7 @@ async function findLuau(dir) {
 
 const state = await LuauState.createAsync();
 try {
-  // 1. Every source file must also be valid Luau.
+  // 1. Every source file in src/ must compile cleanly as valid Luau.
   const sources = await findLuau(sourceRoot);
   for (const file of sources) {
     const source = await fs.readFile(file, "utf8");
@@ -36,30 +36,115 @@ try {
   const configSpec = await read("tests/config.spec.luau");
   await state.loadstring(`local Config=(function()\n${config}\nend)()\n${configSpec}`, "config.spec.luau", true)();
 
-  // 3. The client must boot against a strict stub: HUD built, build stamp shown, remotes found.
+  // 3. Unit & Integration Specs for Shared Gameplay Engines (Nerve, Sensor, Halo Combat,
+  //    DevilutionX 2D Spatial Grid, Diablo LootRoller, Plasma Weapons & Wipe Durability Tax).
+  const sharedModulesOrder = [
+    { root: "Shared", segs: ["Config"], path: "src/ReplicatedStorage/Shared/Config.luau" },
+    { root: "Shared", segs: ["Core", "Nerve"], path: "src/ReplicatedStorage/Shared/Core/Nerve.luau" },
+    { root: "Shared", segs: ["Core", "Sensor"], path: "src/ReplicatedStorage/Shared/Core/Sensor.luau" },
+    { root: "Shared", segs: ["Core", "Rng"], path: "src/ReplicatedStorage/Shared/Core/Rng.luau" },
+    { root: "Shared", segs: ["Net", "RemotesSchema"], path: "src/ReplicatedStorage/Shared/Net/RemotesSchema.luau" },
+    { root: "Shared", segs: ["Combat", "DamageMath"], path: "src/ReplicatedStorage/Shared/Combat/DamageMath.luau" },
+    { root: "Shared", segs: ["Weapons", "WeaponCatalog"], path: "src/ReplicatedStorage/Shared/Weapons/WeaponCatalog.luau" },
+    { root: "Shared", segs: ["Loot", "AffixCatalog"], path: "src/ReplicatedStorage/Shared/Loot/AffixCatalog.luau" },
+    { root: "Shared", segs: ["Loot", "LootRoller"], path: "src/ReplicatedStorage/Shared/Loot/LootRoller.luau" },
+    { root: "Shared", segs: ["Inventory", "GridContainer"], path: "src/ReplicatedStorage/Shared/Inventory/GridContainer.luau" },
+    { root: "Shared", segs: ["Economy", "DurabilityMath"], path: "src/ReplicatedStorage/Shared/Economy/DurabilityMath.luau" },
+    { root: "Shared", segs: ["World", "EnemyCatalog"], path: "src/ReplicatedStorage/Shared/World/EnemyCatalog.luau" },
+    { root: "Shared", segs: ["World", "WorldZones"], path: "src/ReplicatedStorage/Shared/World/WorldZones.luau" },
+  ];
+
+  const clientModulesOrder = [
+    { root: "ClientModules", segs: ["Hud"], path: "src/ReplicatedStorage/Client/Hud.luau" },
+    { root: "ClientModules", segs: ["UI", "Theme"], path: "src/ReplicatedStorage/Client/UI/Theme.luau" },
+    { root: "ClientModules", segs: ["Core", "LayoutActor"], path: "src/ReplicatedStorage/Client/Core/LayoutActor.luau" },
+    { root: "ClientModules", segs: ["UI", "ClientStore"], path: "src/ReplicatedStorage/Client/UI/ClientStore.luau" },
+    { root: "ClientModules", segs: ["UI", "CombatHudActor"], path: "src/ReplicatedStorage/Client/UI/CombatHudActor.luau" },
+    { root: "ClientModules", segs: ["UI", "InventoryLayoutActor"], path: "src/ReplicatedStorage/Client/UI/InventoryLayoutActor.luau" },
+    { root: "ClientModules", segs: ["UI", "RaidSummaryActor"], path: "src/ReplicatedStorage/Client/UI/RaidSummaryActor.luau" },
+    { root: "ClientModules", segs: ["Camera", "CameraDirector"], path: "src/ReplicatedStorage/Client/Camera/CameraDirector.luau" },
+    { root: "ClientModules", segs: ["Controllers", "MovementController"], path: "src/ReplicatedStorage/Client/Controllers/MovementController.luau" },
+    { root: "ClientModules", segs: ["Controllers", "WeaponClientController"], path: "src/ReplicatedStorage/Client/Controllers/WeaponClientController.luau" },
+  ];
+
   const stub = await read("tests/client-stub.luau");
-  const client = await read("src/StarterPlayer/StarterPlayerScripts/Main.client.luau");
-  const hud = await read("src/ReplicatedStorage/Client/Hud.luau");
   const tag = await read("src/ReplicatedStorage/Shared/BuildTag.luau").catch(() => 'return { tag = "dev" }\n');
-  const clientSpec = await read("tests/client.spec.luau");
-  // Resolve modules by identity, exactly like Roblox: a queue would hand the wrong module
-  // back depending on require order, and hide genuine wiring mistakes.
-  const wiring = `Config=(function()\n${config}\nend)()
-Tag=(function()\n${tag}\nend)()
-local HudModule=(function()\n${hud}\nend)()
-local __byModule={[configModule]=Config,[tagModule]=Tag,[hudModule]=HudModule}
-require=function(module) local value=__byModule[module]; if value==nil then error("no module registered for "..tostring(module and module.Name)) end; return value end
+
+  // Build identity-based Roblox module loader in Luau so `script.Parent...` & `WaitForChild`
+  // resolve real ModuleScript instances in topological order.
+  let moduleBootstrap = `
+local __byModule = {}
+require = function(mod)
+  local val = __byModule[mod]
+  if val == nil then
+    error("no module registered for " .. tostring(mod and mod.Name))
+  end
+  return val
+end
+__byModule[tagModule] = (function()\n${tag}\nend)()
 `;
-  await state.loadstring(`${stub}\n${wiring}\nlocal function bootClient()\n${client}\nend\nbootClient()\n${clientSpec}`, "client.spec.luau", true)();
+
+  for (const m of [...sharedModulesOrder, ...clientModulesOrder]) {
+    const code = await read(m.path);
+    const segList = m.segs.map((s) => `"${s}"`).join(", ");
+    const varExport = m.segs[m.segs.length - 1];
+    const isPrecreated =
+      (m.root === "Shared" && m.segs.length === 1 && m.segs[0] === "Config") ||
+      (m.root === "ClientModules" && m.segs.length === 1 && m.segs[0] === "Hud");
+    const nodeExpr = isPrecreated
+      ? m.segs[0] === "Config"
+        ? "configModule"
+        : "hudModule"
+      : `makeModuleNode(${m.root}, { ${segList} })`;
+    moduleBootstrap += `
+local ${varExport}
+do
+  local __modInst = ${nodeExpr}
+  ${varExport} = (function()
+    local script = __modInst
+${code}
+  end)()
+  __byModule[__modInst] = ${varExport}
+end
+`;
+  }
+
+  for (const specFile of [
+    "tests/nerve-and-sensor.spec.luau",
+    "tests/halo-combat.spec.luau",
+    "tests/grid-inventory.spec.luau",
+    "tests/loot-and-economy.spec.luau",
+  ]) {
+    const specCode = await read(specFile);
+    await state.loadstring(`${stub}\n${moduleBootstrap}\n${specCode}`, path.basename(specFile), true)();
+  }
+
+  // 4. Boot the real Main.client.luau (including full Pro-HUD, 2D Grid Inventory, Raid Summary &
+  //    Controllers) against the strict stub: HUD built, build stamp shown, remotes found.
+  const client = await read("src/StarterPlayer/StarterPlayerScripts/Main.client.luau");
+  const clientSpec = await read("tests/client.spec.luau");
+  const clientInteractionSpec = await read("tests/client-interaction.spec.luau");
+  const extraClientChecks = `
+assert(gui:FindFirstChild("CombatProHud") ~= nil, "CombatProHud LayoutActor mounted")
+assert(gui:FindFirstChild("TacticalInventoryModal") ~= nil, "2D Grid TacticalInventoryModal mounted")
+assert(gui:FindFirstChild("RaidSummaryModal") ~= nil, "RaidSummaryModal mounted")
+`;
+  await state.loadstring(
+    `${stub}\n${moduleBootstrap}\nlocal function bootClient()\n${client}\nend\nbootClient()\n${clientSpec}\n${extraClientChecks}\n${clientInteractionSpec}`,
+    "client.spec.luau",
+    true
+  )();
+
   // Second variant: the server never published its remotes. The client must still draw its
   // interface and say so, instead of freezing on an endless wait.
   const missingSpec = await read("tests/client-missing-remotes.spec.luau");
-  await state.loadstring(`${stub}\n${wiring}\nHARNESS_DROP_REMOTES()\nlocal function bootClient()\n${client}\nend\nbootClient()\n${missingSpec}`, "client-missing-remotes.spec.luau", true)();
+  await state.loadstring(
+    `${stub}\n${moduleBootstrap}\nHARNESS_DROP_REMOTES()\nlocal function bootClient()\n${client}\nend\nbootClient()\n${missingSpec}`,
+    "client-missing-remotes.spec.luau",
+    true
+  )();
 
-  // 4. The built place must contain the right classes in the right places. Skip with a clear
-  //    reason when nobody has built yet (a fresh copy has no build/ folder), and force argv[2]
-  //    to a plain path: scripts invoked from tests otherwise receive the file URL, which
-  //    arrives percent-encoded and breaks in any folder whose name contains a space.
+  // 5. Place layout verification.
   const placeFile = process.argv[2] || path.join(root, "build", "game.rbxlx");
   if (!existsSync(placeFile)) {
     console.log(`FAIL Place file: ${placeFile} is missing. Run .\\scripts\\play.ps1 (or rojo build) first.`);

@@ -1,42 +1,141 @@
--- Client entry point. Build the interface FIRST, then talk to the server: a client that
--- waits on a remote before drawing anything shows the player an empty screen and no reason.
+--!strict
+-- Client entry point for ASHFALL: Bastion Protocol.
+-- TEMPLATE RULE #3 ENFORCED: Builds the entire GameHud & LayoutActor interface FIRST before
+-- awaiting server remotes, and uses explicit timeouts on every WaitForChild!
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ScriptContext = game:GetService("ScriptContext")
+
 local player = Players.LocalPlayer
 
--- Build stamp: proves in-game which commit is running.
+-- 1. Build stamp: proves in-game which commit is running.
+local sharedFolder = ReplicatedStorage:WaitForChild("Shared", 10)
 local tagOk, tagModule = pcall(function()
-	return require(ReplicatedStorage:WaitForChild("Shared", 10):WaitForChild("BuildTag", 10))
+	return require(sharedFolder:WaitForChild("BuildTag", 10))
 end)
 local tag = if tagOk and type(tagModule) == "table" then tostring(tagModule.tag) else "dev"
 
-local Config = require(ReplicatedStorage.Shared.Config)
--- Client modules come from ReplicatedStorage, never from beside this script: Rojo does not
--- replicate ModuleScripts into PlayerScripts as files, and script.Parent is the PlayerScripts
--- container at runtime. Requiring from there fails with "Infinite yield possible".
-local Hud = require(ReplicatedStorage:WaitForChild("ClientModules", 10):WaitForChild("Hud"))
+local Config = require(sharedFolder:WaitForChild("Config", 10))
+local RemotesSchema = require(sharedFolder:WaitForChild("Net", 10):WaitForChild("RemotesSchema", 10))
 
-local playerGui = player:WaitForChild("PlayerGui")
+-- 2. Client modules live strictly in ReplicatedStorage.ClientModules (Template Rule #1).
+local clientModules = ReplicatedStorage:WaitForChild("ClientModules", 10)
+local Hud = require(clientModules:WaitForChild("Hud", 10))
+local ClientStore = require(clientModules:WaitForChild("UI", 10):WaitForChild("ClientStore", 10))
+local CombatHudActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("CombatHudActor", 10))
+local InventoryLayoutActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("InventoryLayoutActor", 10))
+local RaidSummaryActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("RaidSummaryActor", 10))
+local CameraDirector = require(clientModules:WaitForChild("Camera", 10):WaitForChild("CameraDirector", 10))
+local MovementController = require(clientModules:WaitForChild("Controllers", 10):WaitForChild("MovementController", 10))
+local WeaponClientController = require(clientModules:WaitForChild("Controllers", 10):WaitForChild("WeaponClientController", 10))
+
+-- 3. Render interface BEFORE awaiting server remotes!
+local playerGui = player:WaitForChild("PlayerGui", 10)
 local screen = Hud.build(playerGui, Config.displayName)
 
-local status = Hud.label(screen, "BUILD " .. tag, UDim2.fromOffset(240, 26), UDim2.fromOffset(16, 62))
+local status = Hud.label(screen, "BUILD " .. tag, UDim2.fromOffset(220, 20), UDim2.fromOffset(16, 42))
 status.BackgroundTransparency = 1
 status.TextXAlignment = Enum.TextXAlignment.Left
-status.TextSize = 14
+status.TextSize = 12
 
--- Errors become visible text, not just an Output line nobody reads.
 ScriptContext.Error:Connect(function(message)
 	status.Text = "ERROR: " .. tostring(message)
 	status.TextColor3 = Color3.fromRGB(255, 130, 130)
 end)
+
+-- Outgoing intent bridge (queues/ignores gracefully until Remotes resolve)
+local resolvedRemotes: Folder? = nil
+local function sendServerIntent(remoteName: string, payload: { [string]: any })
+	if not resolvedRemotes then
+		return
+	end
+	local ev = resolvedRemotes:FindFirstChild(remoteName)
+	if ev and ev:IsA("RemoteEvent") then
+		ev:FireServer(payload)
+	end
+end
+
+local combatHud = CombatHudActor.create(screen)
+local inventoryUi = InventoryLayoutActor.create(screen, sendServerIntent)
+local raidSummaryUi = RaidSummaryActor.create(screen)
+
+local cameraCtrl = CameraDirector.start(function(adsActive: boolean)
+	sendServerIntent(RemotesSchema.events.TacticalMove, { ads = adsActive })
+end)
+
+MovementController.start(function(movePayload: { [string]: any })
+	sendServerIntent(RemotesSchema.events.TacticalMove, movePayload)
+end)
+
+local weaponCtrl = WeaponClientController.start({
+	sendAction = sendServerIntent,
+	getAimRay = cameraCtrl.getAimRay,
+	rotateHeldItem = inventoryUi.rotateHeldItem,
+})
+
+RunService.RenderStepped:Connect(function(dt: number)
+	local clampedDt = math.min(dt, 0.1)
+	cameraCtrl.step(clampedDt)
+	weaponCtrl.step(clampedDt)
+	combatHud.actor:update(clampedDt)
+	inventoryUi.actor:update(clampedDt)
+	raidSummaryUi.actor:update(clampedDt)
+
+	local lookXZ, pPos = cameraCtrl.getCameraLookXZ()
+	combatHud.updateRadarHeading(lookXZ, pPos)
+end)
+
 print("[game] client: HUD built (" .. tag .. ")")
 
--- Bounded waits only: an untimed WaitForChild on something that never arrives freezes the
--- client with no explanation ("Infinite yield possible").
-local remotes = ReplicatedStorage:WaitForChild("Remotes", 15)
+-- 4. Bounded remote wait (Template Rule #3: never freeze silently if server failed to boot)
+local remotes = ReplicatedStorage:WaitForChild(RemotesSchema.folderName, 15)
 if not remotes then
 	status.Text = "SERVER NOT READY — no Remotes folder. Check Output."
 	return
 end
+resolvedRemotes = remotes
+
+local function bindClientEvent(name: string, fn: (any) -> ())
+	local ev = remotes:WaitForChild(name, 10)
+	if ev and ev:IsA("RemoteEvent") then
+		ev.OnClientEvent:Connect(fn)
+	end
+end
+
+bindClientEvent(RemotesSchema.events.StateSnapshot, function(payload)
+	if type(payload) == "table" then
+		ClientStore.applySnapshot(payload)
+	end
+end)
+
+bindClientEvent(RemotesSchema.events.WorldState, function(payload)
+	if type(payload) == "table" then
+		ClientStore.applyWorldState(payload)
+	end
+end)
+
+bindClientEvent(RemotesSchema.events.CombatFeedback, function(payload)
+	if type(payload) == "table" then
+		if payload.kind == "Hitmarker" then
+			combatHud.flashHitmarker(payload)
+		else
+			weaponCtrl.renderFeedback(payload)
+		end
+	end
+end)
+
+bindClientEvent(RemotesSchema.events.Notification, function(payload)
+	if type(payload) == "table" and type(payload.message) == "string" then
+		combatHud.showToast(payload.message, payload.tone)
+	end
+end)
+
+bindClientEvent(RemotesSchema.events.RaidSummary, function(payload)
+	if type(payload) == "table" then
+		raidSummaryUi.presentSummary(payload)
+	end
+end)
+
 print("[game] client: ready")
