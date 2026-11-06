@@ -91,6 +91,52 @@ function LootContainerService.init(cFolder: Folder, dFolder: Folder)
 	end
 end
 
+function LootContainerService.spawnDynamicSupplyPod(id: string, title: string, pos: Vector3, treasureClass: string): Model?
+	if not containersFolder then
+		return nil
+	end
+	if containers[id] then
+		LootContainerService.removeDynamicContainer(id)
+	end
+	local model = PrefabBuilder.buildSupplyPod(pos)
+	model.Name = id
+	model:SetAttribute("ContainerId", id)
+	model:SetAttribute("ContainerKind", "SupplyPod")
+	model:SetAttribute("Locked", false)
+	model.Parent = containersFolder
+
+	local grid = GridContainer.new(Config.grid.crateWidth, Config.grid.crateHeight)
+	for _ = 1, 4 do
+		local rolled = LootRoller.rollFromTreasureClass(treasureClass, worldRng, 0.55)
+		GridContainer.autoPlace(grid, rolled)
+	end
+	GridContainer.autoPlace(grid, LootRoller.createSpecificItem("ArmoryKeycard", "Rare", 10, 1, worldRng:nextU32()))
+
+	containers[id] = {
+		id = id,
+		kind = "SupplyPod",
+		title = title,
+		position = pos,
+		treasureClass = treasureClass,
+		locked = false,
+		grid = grid,
+		model = model,
+		restockAt = 0,
+	}
+	return model
+end
+
+function LootContainerService.removeDynamicContainer(id: string)
+	local rec = containers[id]
+	if not rec then
+		return
+	end
+	if rec.model then
+		rec.model:Destroy()
+	end
+	containers[id] = nil
+end
+
 function LootContainerService.tick(_dt: number)
 	local now = os.clock()
 	for _, rec in pairs(containers) do

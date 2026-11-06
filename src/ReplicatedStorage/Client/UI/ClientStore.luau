@@ -56,23 +56,30 @@ local ClientStore = {
 			Primary2 = { ammo = 12, maxAmmo = 12, heat = 0, isOverheated = false, isReloading = false, venting = false },
 		},
 		contracts = {} :: { [string]: any },
+		skills = {} :: { [string]: number },
+		skillPoints = 1,
 	},
 
 	world = {
 		beacons = {} :: { any },
 		radarBlips = {} :: { any },
 		squad = {} :: { any },
+		activeBoss = nil :: any,
+		supplyDrop = nil :: any,
 	},
 
 	ui = {
 		inventoryOpen = false,
-		rightTab = "Stash" :: string, -- "Crate" | "Stash" | "Workbench" | "Vendor" | "Contracts" | "Deploy"
+		rightTab = "Stash" :: string, -- "Crate" | "Stash" | "Workbench" | "Vendor" | "Contracts" | "Tech" | "Deploy"
 		heldItem = nil :: HeldDragItem?,
 		selectedItem = nil :: { item: any, srcGrid: string? }?,
 		interactPrompt = nil :: string?,
 		adsActive = false,
 		sprinting = false,
 		reticleBloom = 0,
+		railCharge = 0,
+		recoilKick = 0,
+		meleeSwing = 0,
 		raidSummary = nil :: any,
 	},
 }
@@ -112,6 +119,8 @@ function ClientStore.applyWorldState(payload: { [string]: any })
 		ClientStore.world.beacons = payload.beacons or {}
 		ClientStore.world.radarBlips = payload.radarBlips or {}
 		ClientStore.world.squad = payload.squad or {}
+		ClientStore.world.activeBoss = payload.activeBoss
+		ClientStore.world.supplyDrop = payload.supplyDrop
 	end
 	ClientStore.notify()
 end

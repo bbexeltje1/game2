@@ -11,6 +11,7 @@ local DamageMath = require(ReplicatedStorage.Shared.Combat.DamageMath)
 local LootRoller = require(ReplicatedStorage.Shared.Loot.LootRoller)
 local GridContainer = require(ReplicatedStorage.Shared.Inventory.GridContainer)
 local DurabilityMath = require(ReplicatedStorage.Shared.Economy.DurabilityMath)
+local SkillTreeCatalog = require(ReplicatedStorage.Shared.Progression.SkillTreeCatalog)
 local WorldZones = require(ReplicatedStorage.Shared.World.WorldZones)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
@@ -82,6 +83,31 @@ function BunkerStationService.handleAction(player: Player, payload: { [string]: 
 	-- Surface deployment can be triggered from Bunker Airlocks or UI Deploy Map while in Bunker
 	if payload.action == "DeployZone" then
 		BunkerStationService.deployToZone(player, tostring(payload.zoneId or "Zone1"))
+		return
+	end
+
+	-- Raider Tech Tree unlocks can be invested anytime (including mid-raid upon leveling up!)
+	if payload.action == "UnlockSkill" then
+		local skillId = tostring(payload.skillId or "")
+		local node = SkillTreeCatalog.ById[skillId]
+		if node then
+			local curRank = profile.skills[skillId] or 0
+			local avail = SkillTreeCatalog.getAvailablePoints(profile.level, profile.skills)
+			if curRank >= node.maxRank then
+				PlayerDataService.notify(player, node.name .. " is already at MAX Rank!", "warn")
+			elseif avail <= 0 then
+				PlayerDataService.notify(player, "Level up to earn more Bastion Tech Points!", "warn")
+			else
+				profile.skills[skillId] = curRank + 1
+				PlayerDataService.recomputeStats(profile)
+				PlayerDataService.notify(
+					player,
+					string.format("Tech Upgraded: %s [Rank %d/%d]", node.name, curRank + 1, node.maxRank),
+					"success"
+				)
+				LootContainerService.syncPlayer(player)
+			end
+		end
 		return
 	end
 
@@ -274,6 +300,11 @@ function BunkerStationService.handleAction(player: Player, payload: { [string]: 
 				"success"
 			)
 		end
+
+	elseif action == "ResetSkills" then
+		table.clear(profile.skills)
+		PlayerDataService.recomputeStats(profile)
+		PlayerDataService.notify(player, "Bastion Tech Points refunded!", "info")
 	end
 
 	LootContainerService.syncPlayer(player)

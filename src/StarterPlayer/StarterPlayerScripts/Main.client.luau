@@ -28,9 +28,11 @@ local ClientStore = require(clientModules:WaitForChild("UI", 10):WaitForChild("C
 local CombatHudActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("CombatHudActor", 10))
 local InventoryLayoutActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("InventoryLayoutActor", 10))
 local RaidSummaryActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("RaidSummaryActor", 10))
+local TouchControlsActor = require(clientModules:WaitForChild("UI", 10):WaitForChild("TouchControlsActor", 10))
 local CameraDirector = require(clientModules:WaitForChild("Camera", 10):WaitForChild("CameraDirector", 10))
 local MovementController = require(clientModules:WaitForChild("Controllers", 10):WaitForChild("MovementController", 10))
 local WeaponClientController = require(clientModules:WaitForChild("Controllers", 10):WaitForChild("WeaponClientController", 10))
+local ProceduralAnimator = require(clientModules:WaitForChild("Controllers", 10):WaitForChild("ProceduralAnimator", 10))
 
 -- 3. Render interface BEFORE awaiting server remotes!
 local playerGui = player:WaitForChild("PlayerGui", 10)
@@ -66,7 +68,7 @@ local cameraCtrl = CameraDirector.start(function(adsActive: boolean)
 	sendServerIntent(RemotesSchema.events.TacticalMove, { ads = adsActive })
 end)
 
-MovementController.start(function(movePayload: { [string]: any })
+local moveCtrl = MovementController.start(function(movePayload: { [string]: any })
 	sendServerIntent(RemotesSchema.events.TacticalMove, movePayload)
 end)
 
@@ -76,13 +78,31 @@ local weaponCtrl = WeaponClientController.start({
 	rotateHeldItem = inventoryUi.rotateHeldItem,
 })
 
+local procAnim = ProceduralAnimator.start()
+
+local touchUi = TouchControlsActor.create(screen, {
+	setTriggerHeld = weaponCtrl.setTriggerHeld,
+	toggleAds = function()
+		cameraCtrl.setAds(not ClientStore.ui.adsActive)
+	end,
+	triggerMelee = weaponCtrl.triggerMelee,
+	triggerDodge = moveCtrl.triggerDodge,
+	triggerReload = weaponCtrl.triggerReload,
+	triggerSwap = weaponCtrl.triggerSwap,
+	triggerOrdnance = weaponCtrl.triggerOrdnance,
+	triggerInteract = weaponCtrl.triggerInteract,
+	toggleInventory = weaponCtrl.toggleInventory,
+})
+
 RunService.RenderStepped:Connect(function(dt: number)
 	local clampedDt = math.min(dt, 0.1)
 	cameraCtrl.step(clampedDt)
 	weaponCtrl.step(clampedDt)
+	procAnim.step(clampedDt)
 	combatHud.actor:update(clampedDt)
 	inventoryUi.actor:update(clampedDt)
 	raidSummaryUi.actor:update(clampedDt)
+	touchUi.actor:update(clampedDt)
 
 	local lookXZ, pPos = cameraCtrl.getCameraLookXZ()
 	combatHud.updateRadarHeading(lookXZ, pPos)
@@ -121,6 +141,8 @@ bindClientEvent(RemotesSchema.events.CombatFeedback, function(payload)
 	if type(payload) == "table" then
 		if payload.kind == "Hitmarker" then
 			combatHud.flashHitmarker(payload)
+		elseif payload.kind == "IncomingHit" then
+			combatHud.flashIncomingHit(payload)
 		else
 			weaponCtrl.renderFeedback(payload)
 		end

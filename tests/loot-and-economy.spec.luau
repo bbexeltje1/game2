@@ -84,5 +84,17 @@ local beaconModel = PrefabBuilder.buildExtractionBeacon("EXTRACTION ALPHA", Vect
 assert(beaconModel:FindFirstChild("ZoneRadiusValue") ~= nil, "Beacon prefab exposes ZoneRadiusValue contract")
 assert(PrefabBuilder.buildAnomalyNode("Anomaly_Spore1", Vector3.new(0, 1, 0)).PrimaryPart ~= nil, "AnomalyNode prefab builds cleanly")
 assert(PrefabBuilder.buildRustedVehicle(CFrame.new(0, 0, 0)).PrimaryPart ~= nil, "RustedVehicle prefab builds cleanly")
+assert(PrefabBuilder.buildSupplyPod(Vector3.new(0, 0, 0)):FindFirstChild("LidPivot") ~= nil, "SupplyPod prefab exposes LidPivot contract")
 
-print("PASS Loot, Plasma Weapons, Wipe Tax & Graybox Prefab Contracts verified")
+-- 5. Verify Raider Tech SkillTreeCatalog & Diablo Champion Elite Affixes
+assert(#EnemyCatalog.EliteOrder == 5 and EnemyCatalog.EliteAffixes.Overcharged ~= nil, "5 Diablo Champion Elite monster affixes configured")
+assert(SkillTreeCatalog.getAvailablePoints(5, { AegisCapacitor = 2, LeadBioweave = 1 }) == 2, "SkillTreeCatalog tracks spent vs available points")
+local baseLoadoutStats = LootRoller.aggregateLoadoutStats(paperdoll)
+local preShield = baseLoadoutStats.maxShield
+local preDelay = baseLoadoutStats.shieldStunDelay
+SkillTreeCatalog.applySkillBonuses(baseLoadoutStats, { AegisCapacitor = 3, LeadBioweave = 2 })
+assert(baseLoadoutStats.maxShield == preShield + 42, "AegisCapacitor Rank 3 grants +42 Max Energy Shield")
+assert(baseLoadoutStats.shieldStunDelay < preDelay, "AegisCapacitor reduces Shield Stun Delay")
+assert(baseLoadoutStats.hazardResist >= 0.18, "LeadBioweave Rank 2 grants +18% Hazard Resistance")
+
+print("PASS Loot, Plasma Weapons, Wipe Tax, SkillTree, Elite Affixes & Prefab Contracts verified")

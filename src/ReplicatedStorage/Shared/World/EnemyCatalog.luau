@@ -213,6 +213,68 @@ local ENEMIES: { [string]: EnemyDef } = {
 	},
 }
 
+export type EliteAffixDef = {
+	id: string,
+	tag: string,
+	color: { r: number, g: number, b: number },
+	shieldMult: number,
+	healthMult: number,
+	speedMult: number,
+	cooldownMult: number,
+}
+
+local ELITE_AFFIXES: { [string]: EliteAffixDef } = {
+	Overcharged = {
+		id = "Overcharged",
+		tag = "OVERCHARGED",
+		color = { r = 72, g = 228, b = 255 },
+		shieldMult = 1.65,
+		healthMult = 1.35,
+		speedMult = 1.05,
+		cooldownMult = 1.0,
+	},
+	Vampiric = {
+		id = "Vampiric",
+		tag = "VAMPIRIC",
+		color = { r = 255, g = 74, b = 96 },
+		shieldMult = 1.30,
+		healthMult = 1.50,
+		speedMult = 1.10,
+		cooldownMult = 0.95,
+	},
+	Berserker = {
+		id = "Berserker",
+		tag = "BERSERKER",
+		color = { r = 255, g = 152, b = 52 },
+		shieldMult = 1.25,
+		healthMult = 1.35,
+		speedMult = 1.32,
+		cooldownMult = 0.76,
+	},
+	Molten = {
+		id = "Molten",
+		tag = "MOLTEN",
+		color = { r = 255, g = 108, b = 36 },
+		shieldMult = 1.30,
+		healthMult = 1.45,
+		speedMult = 1.05,
+		cooldownMult = 1.0,
+	},
+	ShieldLink = {
+		id = "ShieldLink",
+		tag = "SHIELD-LINK",
+		color = { r = 188, g = 112, b = 255 },
+		shieldMult = 1.50,
+		healthMult = 1.35,
+		speedMult = 1.0,
+		cooldownMult = 1.0,
+	},
+}
+
+local ELITE_ORDER = { "Overcharged", "Vampiric", "Berserker", "Molten", "ShieldLink" }
+
 return {
 	Enemies = ENEMIES,
+	EliteAffixes = ELITE_AFFIXES,
+	EliteOrder = ELITE_ORDER,
 }

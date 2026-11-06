@@ -23,6 +23,7 @@ local CameraDirector = {}
 function CameraDirector.start(onAdsChanged: ((boolean) -> ())?): {
 	getAimRay: () -> (Vector3, Vector3),
 	getCameraLookXZ: () -> (Vector2, Vector3),
+	setAds: (active: boolean) -> (),
 	step: (dt: number) -> (),
 }
 	local player = Players.LocalPlayer
@@ -32,31 +33,36 @@ function CameraDirector.start(onAdsChanged: ((boolean) -> ())?): {
 	local currentSide = 2.4
 	local currentDist = 8.6
 	local currentFov = 70
+	local stickDelta = Vector2.new(0, 0)
+
+	local function setAds(active: boolean)
+		if active and (ClientStore.ui.inventoryOpen or ClientStore.ui.raidSummary ~= nil) then
+			return
+		end
+		if ClientStore.ui.adsActive ~= active then
+			ClientStore.ui.adsActive = active
+			if onAdsChanged then
+				onAdsChanged(active)
+			end
+		end
+	end
 
 	UserInputService.InputBegan:Connect(function(input: any, gameProcessed: boolean)
 		if gameProcessed then
 			return
 		end
-		if input.KeyCode == Enum.KeyCode.V then
+		if input.KeyCode == Enum.KeyCode.V or input.KeyCode == Enum.KeyCode.DPadDown then
 			shoulderSide = -shoulderSide
-		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-			if not ClientStore.ui.inventoryOpen and ClientStore.ui.raidSummary == nil then
-				ClientStore.ui.adsActive = true
-				if onAdsChanged then
-					onAdsChanged(true)
-				end
-			end
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
+			setAds(true)
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input: any)
-		if input.UserInputType == Enum.UserInputType.MouseButton2 then
-			if ClientStore.ui.adsActive then
-				ClientStore.ui.adsActive = false
-				if onAdsChanged then
-					onAdsChanged(false)
-				end
-			end
+		if input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
+			setAds(false)
+		elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
+			stickDelta = Vector2.new(0, 0)
 		end
 	end)
 
@@ -72,6 +78,11 @@ function CameraDirector.start(onAdsChanged: ((boolean) -> ())?): {
 				local sens = if ClientStore.ui.adsActive then 0.0024 else 0.0038
 				yaw -= input.Delta.X * sens
 				pitch = math.clamp(pitch - input.Delta.Y * sens, -1.22, 1.05)
+			elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
+				local pos = input.Position
+				local dx = if math.abs(pos.X) > 0.14 then pos.X else 0
+				local dy = if math.abs(pos.Y) > 0.14 then pos.Y else 0
+				stickDelta = Vector2.new(dx, dy)
 			end
 		end)
 	end
@@ -93,6 +104,11 @@ function CameraDirector.start(onAdsChanged: ((boolean) -> ())?): {
 		end
 
 		local menuOpen = ClientStore.ui.inventoryOpen or (ClientStore.ui.raidSummary ~= nil)
+		if not menuOpen and (stickDelta.X ~= 0 or stickDelta.Y ~= 0) then
+			local stickSens = if ClientStore.ui.adsActive then 1.65 else 2.65
+			yaw -= stickDelta.X * stickSens * dt
+			pitch = math.clamp(pitch + stickDelta.Y * stickSens * 0.8 * dt, -1.22, 1.05)
+		end
 		pcall(function()
 			UserInputService.MouseBehavior = if menuOpen
 				then Enum.MouseBehavior.Default
@@ -217,6 +233,7 @@ function CameraDirector.start(onAdsChanged: ((boolean) -> ())?): {
 	return {
 		getAimRay = getAimRay,
 		getCameraLookXZ = getCameraLookXZ,
+		setAds = setAds,
 		step = step,
 	}
 end

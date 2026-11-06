@@ -50,6 +50,7 @@ try {
     { root: "Shared", segs: ["Loot", "LootRoller"], path: "src/ReplicatedStorage/Shared/Loot/LootRoller.luau" },
     { root: "Shared", segs: ["Inventory", "GridContainer"], path: "src/ReplicatedStorage/Shared/Inventory/GridContainer.luau" },
     { root: "Shared", segs: ["Economy", "DurabilityMath"], path: "src/ReplicatedStorage/Shared/Economy/DurabilityMath.luau" },
+    { root: "Shared", segs: ["Progression", "SkillTreeCatalog"], path: "src/ReplicatedStorage/Shared/Progression/SkillTreeCatalog.luau" },
     { root: "Shared", segs: ["World", "EnemyCatalog"], path: "src/ReplicatedStorage/Shared/World/EnemyCatalog.luau" },
     { root: "Shared", segs: ["World", "WorldZones"], path: "src/ReplicatedStorage/Shared/World/WorldZones.luau" },
     { root: "Shared", segs: ["Assets", "PrefabBuilder"], path: "src/ReplicatedStorage/Shared/Assets/PrefabBuilder.luau" },
@@ -64,9 +65,11 @@ try {
     { root: "ClientModules", segs: ["UI", "CombatHudActor"], path: "src/ReplicatedStorage/Client/UI/CombatHudActor.luau" },
     { root: "ClientModules", segs: ["UI", "InventoryLayoutActor"], path: "src/ReplicatedStorage/Client/UI/InventoryLayoutActor.luau" },
     { root: "ClientModules", segs: ["UI", "RaidSummaryActor"], path: "src/ReplicatedStorage/Client/UI/RaidSummaryActor.luau" },
+    { root: "ClientModules", segs: ["UI", "TouchControlsActor"], path: "src/ReplicatedStorage/Client/UI/TouchControlsActor.luau" },
     { root: "ClientModules", segs: ["Camera", "CameraDirector"], path: "src/ReplicatedStorage/Client/Camera/CameraDirector.luau" },
     { root: "ClientModules", segs: ["Controllers", "MovementController"], path: "src/ReplicatedStorage/Client/Controllers/MovementController.luau" },
     { root: "ClientModules", segs: ["Controllers", "WeaponClientController"], path: "src/ReplicatedStorage/Client/Controllers/WeaponClientController.luau" },
+    { root: "ClientModules", segs: ["Controllers", "ProceduralAnimator"], path: "src/ReplicatedStorage/Client/Controllers/ProceduralAnimator.luau" },
   ];
 
   const stub = await read("tests/client-stub.luau");

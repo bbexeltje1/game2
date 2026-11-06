@@ -18,7 +18,10 @@ local ClientStore = require(ClientModules:WaitForChild("UI", 10):WaitForChild("C
 
 local MovementController = {}
 
-function MovementController.start(sendTacticalMove: (payload: { [string]: any }) -> ())
+function MovementController.start(sendTacticalMove: (payload: { [string]: any }) -> ()): {
+	triggerDodge: () -> (),
+	triggerSlide: () -> (),
+}
 	local player = Players.LocalPlayer
 	local lastSlideAt = 0
 	local lastDodgeAt = 0
@@ -57,59 +60,73 @@ function MovementController.start(sendTacticalMove: (payload: { [string]: any })
 		end
 	end
 
+	local function triggerSlide()
+		local now = os.clock()
+		if (now - lastSlideAt) >= Config.movement.slideCooldown then
+			lastSlideAt = now
+			local root, hum, _ = getRootAndHumanoid()
+			if root and hum then
+				local dir = if hum.MoveDirection.Magnitude > 0.1 then hum.MoveDirection.Unit else root.CFrame.LookVector
+				root.AssemblyLinearVelocity = Vector3.new(
+					dir.X * Config.movement.slideImpulse,
+					root.AssemblyLinearVelocity.Y,
+					dir.Z * Config.movement.slideImpulse
+				)
+				sendTacticalMove({ slide = true })
+			end
+		end
+	end
+
+	local function triggerDodge()
+		local now = os.clock()
+		if (now - lastDodgeAt) >= Config.movement.dodgeCooldown then
+			lastDodgeAt = now
+			local root, hum, _ = getRootAndHumanoid()
+			if root and hum then
+				local dir = if hum.MoveDirection.Magnitude > 0.1 then hum.MoveDirection.Unit else -root.CFrame.LookVector
+				root.AssemblyLinearVelocity = Vector3.new(
+					dir.X * Config.movement.dodgeImpulse,
+					8,
+					dir.Z * Config.movement.dodgeImpulse
+				)
+				sendTacticalMove({ dodge = true })
+			end
+		end
+	end
+
 	UserInputService.InputBegan:Connect(function(input: any, gameProcessed: boolean)
 		if gameProcessed or ClientStore.ui.inventoryOpen or ClientStore.ui.raidSummary ~= nil then
 			return
 		end
 
-		local now = os.clock()
-		if input.KeyCode == Enum.KeyCode.LeftShift then
+		if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.ButtonL3 then
 			ClientStore.ui.sprinting = true
 			sendTacticalMove({ sprinting = true })
 
 		elseif input.KeyCode == Enum.KeyCode.C then
-			if (now - lastSlideAt) >= Config.movement.slideCooldown then
-				lastSlideAt = now
-				local root, hum, _ = getRootAndHumanoid()
-				if root and hum then
-					local dir = if hum.MoveDirection.Magnitude > 0.1 then hum.MoveDirection.Unit else root.CFrame.LookVector
-					root.AssemblyLinearVelocity = Vector3.new(
-						dir.X * Config.movement.slideImpulse,
-						root.AssemblyLinearVelocity.Y,
-						dir.Z * Config.movement.slideImpulse
-					)
-					sendTacticalMove({ slide = true })
-				end
-			end
+			triggerSlide()
 
-		elseif input.KeyCode == Enum.KeyCode.LeftAlt then
-			if (now - lastDodgeAt) >= Config.movement.dodgeCooldown then
-				lastDodgeAt = now
-				local root, hum, _ = getRootAndHumanoid()
-				if root and hum then
-					local dir = if hum.MoveDirection.Magnitude > 0.1 then hum.MoveDirection.Unit else -root.CFrame.LookVector
-					root.AssemblyLinearVelocity = Vector3.new(
-						dir.X * Config.movement.dodgeImpulse,
-						8,
-						dir.Z * Config.movement.dodgeImpulse
-					)
-					sendTacticalMove({ dodge = true })
-				end
-			end
+		elseif input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.ButtonB then
+			triggerDodge()
 
-		elseif input.KeyCode == Enum.KeyCode.Space then
+		elseif input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonA then
 			tryLedgeMantle()
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input: any)
-		if input.KeyCode == Enum.KeyCode.LeftShift then
+		if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.ButtonL3 then
 			if ClientStore.ui.sprinting then
 				ClientStore.ui.sprinting = false
 				sendTacticalMove({ sprinting = false })
 			end
 		end
 	end)
+
+	return {
+		triggerDodge = triggerDodge,
+		triggerSlide = triggerSlide,
+	}
 end
 
 return MovementController

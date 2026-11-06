@@ -12,6 +12,7 @@ local AffixCatalog = require(Shared:WaitForChild("Loot", 10):WaitForChild("Affix
 local LootRoller = require(Shared:WaitForChild("Loot", 10):WaitForChild("LootRoller", 10))
 local GridContainer = require(Shared:WaitForChild("Inventory", 10):WaitForChild("GridContainer", 10))
 local DurabilityMath = require(Shared:WaitForChild("Economy", 10):WaitForChild("DurabilityMath", 10))
+local SkillTreeCatalog = require(Shared:WaitForChild("Progression", 10):WaitForChild("SkillTreeCatalog", 10))
 local LayoutActor = require(ClientModules:WaitForChild("Core", 10):WaitForChild("LayoutActor", 10))
 local SoundController = require(ClientModules:WaitForChild("Audio", 10):WaitForChild("SoundController", 10))
 local Theme = require(ClientModules:WaitForChild("UI", 10):WaitForChild("Theme", 10))
@@ -581,8 +582,9 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 		{ id = "Stash", label = "STASH" },
 		{ id = "Crate", label = "CRATE" },
 		{ id = "Workbench", label = "BENCH" },
-		{ id = "Vendor", label = "VENDOR" },
-		{ id = "Contracts", label = "BOUNTIES" },
+		{ id = "Vendor", label = "SHOP" },
+		{ id = "Contracts", label = "BOUNTY" },
+		{ id = "Tech", label = "TECH" },
 		{ id = "Deploy", label = "DEPLOY" },
 	}
 	local tabButtons: { [string]: TextButton } = {}
@@ -591,8 +593,8 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 			rightCol,
 			"Tab_" .. t.id,
 			t.label,
-			UDim2.fromOffset(59, 26),
-			UDim2.fromOffset(8 + (i - 1) * 62, 8),
+			UDim2.fromOffset(50, 26),
+			UDim2.fromOffset(7 + (i - 1) * 53, 8),
 			Theme.bgElevated,
 			Theme.textSecondary,
 			10
@@ -742,6 +744,52 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 			ClientStore.notify()
 		end)
 	end
+
+	-- Raider Progression Tech Tree View (`[TECH]`)
+	local techView = Theme.frame(rightCol, "TechView", UDim2.new(1, -16, 1, -46), UDim2.fromOffset(8, 40), Theme.bgPanel, 1)
+	local techHdrLbl = Theme.label(
+		techView,
+		"Hdr",
+		"RAIDER SPECIALIZATION TECH (1 PT AVAILABLE)",
+		UDim2.new(1, -8, 0, 22),
+		UDim2.fromOffset(4, 0),
+		Enum.Font.GothamBold,
+		11,
+		Theme.positiveGreen
+	)
+	local skillButtons: { [string]: TextButton } = {}
+	for i, sNode in ipairs(SkillTreeCatalog.Nodes) do
+		local sBtn = Theme.button(
+			techView,
+			"Skill_" .. sNode.id,
+			sNode.name,
+			UDim2.new(1, -8, 0, 62),
+			UDim2.fromOffset(4, 26 + (i - 1) * 67),
+			Theme.bgSlot,
+			Theme.textPrimary,
+			10
+		)
+		sBtn.TextWrapped = true
+		skillButtons[sNode.id] = sBtn
+		sBtn.MouseButton1Click:Connect(function()
+			SoundController.playUiClick()
+			sendAction("BunkerAction", { action = "UnlockSkill", skillId = sNode.id })
+		end)
+	end
+	local resetTechBtn = Theme.button(
+		techView,
+		"ResetTechBtn",
+		"REFUND ALL TECH POINTS (BUNKER)",
+		UDim2.new(1, -8, 0, 32),
+		UDim2.fromOffset(4, 434),
+		Theme.bgElevated,
+		Theme.scrapAmber,
+		10
+	)
+	resetTechBtn.MouseButton1Click:Connect(function()
+		SoundController.playUiClick()
+		sendAction("BunkerAction", { action = "ResetSkills" })
+	end)
 
 	-- Floating Held-Item Cursor Ghost Card (`DevilutionX` / Tarkov spatial drag feel!)
 	local heldGhost = Theme.frame(
@@ -906,6 +954,28 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 			end
 		end
 
+		-- Tech Tree
+		local pts = snap.skillPoints or 0
+		techHdrLbl.Text = string.format("RAIDER SPECIALIZATION TECH  •  %d PT%s AVAILABLE", pts, if pts == 1 then "" else "S")
+		local curSkills = snap.skills or {}
+		for _, sNode in ipairs(SkillTreeCatalog.Nodes) do
+			local sb = skillButtons[sNode.id]
+			if sb then
+				local rnk = curSkills[sNode.id] or 0
+				local maxed = (rnk >= sNode.maxRank)
+				sb.Text = string.format(
+					"[%s] %s  •  Rank %d/%d %s\n%s",
+					sNode.category,
+					sNode.name,
+					rnk,
+					sNode.maxRank,
+					if maxed then "(MAX)" elseif pts > 0 then "[+ UPGRADE]" else "",
+					sNode.description
+				)
+				sb.TextColor3 = if maxed then Theme.scrapAmber elseif rnk > 0 then Theme.positiveGreen else Theme.textPrimary
+			end
+		end
+
 		-- Active Right Tab visibility
 		local rTab = ClientStore.ui.rightTab
 		stashView.Visible = (rTab == "Stash")
@@ -913,6 +983,7 @@ function InventoryLayoutActor.create(screenGui: ScreenGui, sendAction: ActionSen
 		benchView.Visible = (rTab == "Workbench")
 		vendorView.Visible = (rTab == "Vendor")
 		contractsView.Visible = (rTab == "Contracts")
+		techView.Visible = (rTab == "Tech")
 		deployView.Visible = (rTab == "Deploy")
 		for id, tb in pairs(tabButtons) do
 			tb.BackgroundColor3 = if id == rTab then Color3.fromRGB(48, 72, 108) else Theme.bgElevated

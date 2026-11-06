@@ -674,4 +674,76 @@ function PrefabBuilder.buildRustedVehicle(cframe: CFrame): Model
 	return model
 end
 
+-- Builds a Halo ODST-style Orbital Supply Drop Pod with golden sky-flare beam & LidPivot
+function PrefabBuilder.buildSupplyPod(pos: Vector3): Model
+	local custom = findCustomOverride("Container.SupplyPod")
+	if custom then
+		custom:PivotTo(CFrame.new(pos))
+		return custom
+	end
+
+	local model = Instance.new("Model")
+	model.Name = "Container.SupplyPod"
+
+	local hull = makePart(
+		model,
+		"Base",
+		Vector3.new(5.6, 6.8, 5.6),
+		CFrame.new(pos + Vector3.new(0, 3.4, 0)),
+		Color3.fromRGB(52, 58, 72),
+		Enum.Material.Metal,
+		true,
+		true
+	)
+	model.PrimaryPart = hull
+
+	local hatch = makePart(
+		model,
+		"LidPivot",
+		Vector3.new(4.2, 4.8, 0.5),
+		CFrame.new(pos + Vector3.new(0, 3.2, -2.85)),
+		Color3.fromRGB(235, 168, 52),
+		Enum.Material.Metal,
+		true,
+		true
+	)
+	hatch:SetAttribute("ClosedY", 3.2)
+
+	local flare = makePart(
+		model,
+		"SkyFlare",
+		Vector3.new(1.1, 185, 1.1),
+		CFrame.new(pos + Vector3.new(0, 96, 0)),
+		Color3.fromRGB(255, 188, 62),
+		Enum.Material.Neon,
+		true,
+		false
+	)
+	flare.Transparency = 0.58
+
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "PodLabel"
+	bb.Size = UDim2.fromOffset(210, 34)
+	bb.StudsOffset = Vector3.new(0, 6.2, 0)
+	bb.MaxDistance = 240
+	bb.Adornee = hull
+	bb.Parent = model
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.fromScale(1, 1)
+	lbl.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+	lbl.BackgroundTransparency = 0.2
+	lbl.BorderSizePixel = 0
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 12
+	lbl.TextColor3 = Color3.fromRGB(255, 195, 72)
+	lbl.Text = "★ ORBITAL SUPPLY POD\n[E] LOOT CACHE"
+	lbl.Parent = bb
+
+	addAttachment(hull, "InteractAnchor", Vector3.new(0, 1.5, -2.9))
+	addAttachment(hull, "LootBeamAttachment", Vector3.new(0, 4.0, 0))
+
+	return model
+end
+
 return PrefabBuilder

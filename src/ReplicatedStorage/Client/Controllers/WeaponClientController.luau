@@ -38,6 +38,13 @@ function WeaponClientController.start(deps: {
 }): {
 	step: (dt: number) -> (),
 	renderFeedback: (eventData: { [string]: any }) -> (),
+	setTriggerHeld: (held: boolean) -> (),
+	triggerMelee: () -> (),
+	triggerReload: () -> (),
+	triggerSwap: () -> (),
+	triggerOrdnance: () -> (),
+	triggerInteract: () -> (),
+	toggleInventory: () -> (),
 }
 	local player = Players.LocalPlayer
 	local triggerHeld = false
@@ -85,13 +92,104 @@ function WeaponClientController.start(deps: {
 		end
 		local wStats = WeaponCatalog.computeStats(activeItem, snap.stats)
 		local origin, dir = deps.getAimRay()
+		local chargeRatio = if activeItem.baseId == "FerroRail" then ClientStore.ui.railCharge else 0
 		deps.sendAction("WeaponFire", {
 			origin = origin,
 			direction = dir,
+			chargeRatio = chargeRatio,
 		})
 		SoundController.playWeaponFire(activeItem.baseId)
+		ClientStore.ui.railCharge = 0
+		ClientStore.ui.recoilKick = 1.0
 		ClientStore.ui.reticleBloom = math.min(1.5, ClientStore.ui.reticleBloom + 0.28)
 		nextClientShotAt = os.clock() + wStats.shotInterval
+	end
+
+	local nextMeleeAt = 0
+	local function triggerMelee()
+		if ClientStore.ui.inventoryOpen or ClientStore.ui.raidSummary ~= nil then
+			return
+		end
+		if os.clock() < nextMeleeAt then
+			return
+		end
+		nextMeleeAt = os.clock() + 0.68
+		ClientStore.ui.meleeSwing = 1.0
+		SoundController.play("ShootScatter", 0.08)
+		local origin, dir = deps.getAimRay()
+		deps.sendAction("WeaponAction", {
+			action = "MeleeStrike",
+			origin = origin,
+			direction = dir,
+		})
+		pcall(function()
+			local char = player.Character
+			local root = if char then char:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+			if root then
+				local flat = Vector3.new(dir.X, 0, dir.Z)
+				if flat.Magnitude > 0.05 then
+					root.AssemblyLinearVelocity = flat.Unit * 22 + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+				end
+			end
+		end)
+	end
+
+	local function triggerReload()
+		local activeItem = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
+		local wDef = if activeItem then WeaponCatalog.get(activeItem.baseId) else nil
+		SoundController.playReload(wDef ~= nil and wDef.usesHeat == true)
+		deps.sendAction("WeaponAction", { action = "ReloadOrVent" })
+	end
+
+	local function triggerSwap()
+		SoundController.playUiClick()
+		local nextSlot = if ClientStore.snapshot.activeWeaponSlot == "Primary1" then "Primary2" else "Primary1"
+		deps.sendAction("WeaponAction", { action = "SwapSlot", slot = nextSlot })
+	end
+
+	local function triggerOrdnance()
+		local origin, dir = deps.getAimRay()
+		deps.sendAction("WeaponAction", {
+			action = "ThrowOrdnance",
+			targetPos = origin + dir * 32,
+		})
+	end
+
+	local function triggerInteract()
+		if currentInteract then
+			currentInteract.execute()
+		end
+	end
+
+	local function toggleInventory()
+		ClientStore.ui.inventoryOpen = not ClientStore.ui.inventoryOpen
+		ClientStore.ui.heldItem = nil
+		if not ClientStore.ui.inventoryOpen and ClientStore.snapshot.openContainer then
+			deps.sendAction("InventoryAction", { action = "CloseContainer" })
+		end
+		ClientStore.notify()
+	end
+
+	local function setTriggerHeld(held: boolean)
+		triggerHeld = held
+		if held and not ClientStore.ui.inventoryOpen and ClientStore.ui.raidSummary == nil then
+			if os.clock() >= nextClientShotAt then
+				local activeItem = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
+				local wDef = if activeItem then WeaponCatalog.get(activeItem.baseId) else nil
+				if wDef and wDef.fireMode == "Burst3" then
+					task.spawn(function()
+						for b = 1, 3 do
+							fireSingleRound()
+							if b < 3 then
+								task.wait(0.065)
+							end
+						end
+					end)
+				else
+					fireSingleRound()
+				end
+			end
+		end
 	end
 
 	local function scanNearestInteractable(): InteractTarget?
@@ -279,18 +377,13 @@ function WeaponClientController.start(deps: {
 	end
 
 	UserInputService.InputBegan:Connect(function(input: any, gameProcessed: boolean)
-		if input.KeyCode == Enum.KeyCode.Tab then
-			ClientStore.ui.inventoryOpen = not ClientStore.ui.inventoryOpen
-			ClientStore.ui.heldItem = nil
-			if not ClientStore.ui.inventoryOpen and ClientStore.snapshot.openContainer then
-				deps.sendAction("InventoryAction", { action = "CloseContainer" })
-			end
-			ClientStore.notify()
+		if input.KeyCode == Enum.KeyCode.Tab or input.KeyCode == Enum.KeyCode.ButtonSelect or input.KeyCode == Enum.KeyCode.DPadUp then
+			toggleInventory()
 			return
 		end
 
 		if ClientStore.ui.inventoryOpen then
-			if input.KeyCode == Enum.KeyCode.R then
+			if input.KeyCode == Enum.KeyCode.R or input.KeyCode == Enum.KeyCode.DPadRight then
 				deps.rotateHeldItem()
 			end
 			return
@@ -300,24 +393,8 @@ function WeaponClientController.start(deps: {
 			return
 		end
 
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			triggerHeld = true
-			if os.clock() >= nextClientShotAt then
-				local activeItem = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
-				local wDef = if activeItem then WeaponCatalog.get(activeItem.baseId) else nil
-				if wDef and wDef.fireMode == "Burst3" then
-					task.spawn(function()
-						for b = 1, 3 do
-							fireSingleRound()
-							if b < 3 then
-								task.wait(0.065)
-							end
-						end
-					end)
-				else
-					fireSingleRound()
-				end
-			end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
+			setTriggerHeld(true)
 
 		elseif input.KeyCode == Enum.KeyCode.One then
 			SoundController.playUiClick()
@@ -325,20 +402,23 @@ function WeaponClientController.start(deps: {
 		elseif input.KeyCode == Enum.KeyCode.Two then
 			SoundController.playUiClick()
 			deps.sendAction("WeaponAction", { action = "SwapSlot", slot = "Primary2" })
+		elseif input.KeyCode == Enum.KeyCode.ButtonY then
+			triggerSwap()
+		elseif input.KeyCode == Enum.KeyCode.F or input.KeyCode == Enum.KeyCode.ButtonR3 then
+			triggerMelee()
 		elseif input.KeyCode == Enum.KeyCode.R then
-			local activeItem = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
-			local wDef = if activeItem then WeaponCatalog.get(activeItem.baseId) else nil
-			SoundController.playReload(wDef ~= nil and wDef.usesHeat == true)
-			deps.sendAction("WeaponAction", { action = "ReloadOrVent" })
-		elseif input.KeyCode == Enum.KeyCode.Q then
-			local origin, dir = deps.getAimRay()
-			deps.sendAction("WeaponAction", {
-				action = "ThrowOrdnance",
-				targetPos = origin + dir * 32,
-			})
+			triggerReload()
+		elseif input.KeyCode == Enum.KeyCode.ButtonX then
+			if currentInteract then
+				currentInteract.execute()
+			else
+				triggerReload()
+			end
+		elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.ButtonL1 then
+			triggerOrdnance()
 		elseif input.KeyCode == Enum.KeyCode.G then
 			deps.sendAction("WeaponAction", { action = "ToggleOrdnanceType" })
-		elseif input.KeyCode == Enum.KeyCode.Three then
+		elseif input.KeyCode == Enum.KeyCode.Three or input.KeyCode == Enum.KeyCode.DPadLeft then
 			deps.sendAction("InventoryAction", { action = "UseBelt", beltIndex = 1 })
 		elseif input.KeyCode == Enum.KeyCode.Four then
 			deps.sendAction("InventoryAction", { action = "UseBelt", beltIndex = 2 })
@@ -347,14 +427,12 @@ function WeaponClientController.start(deps: {
 		elseif input.KeyCode == Enum.KeyCode.Six then
 			deps.sendAction("InventoryAction", { action = "UseBelt", beltIndex = 4 })
 		elseif input.KeyCode == Enum.KeyCode.E then
-			if currentInteract then
-				currentInteract.execute()
-			end
+			triggerInteract()
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input: any)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
 			triggerHeld = false
 		end
 	end)
@@ -363,10 +441,17 @@ function WeaponClientController.start(deps: {
 	local function step(dt: number)
 		ClientStore.ui.reticleBloom = math.max(0, ClientStore.ui.reticleBloom - dt * 2.4)
 
+		-- Ferro-Rail Marksman ADS Charge Capacitor (0 -> 100% over 1.05s while aiming down sights!)
+		local activeGun = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
+		if ClientStore.ui.adsActive and activeGun and activeGun.baseId == "FerroRail" then
+			ClientStore.ui.railCharge = math.min(1.0, ClientStore.ui.railCharge + dt * 0.95)
+		else
+			ClientStore.ui.railCharge = math.max(0.0, ClientStore.ui.railCharge - dt * 2.5)
+		end
+
 		-- Full-auto sustained fire
 		if triggerHeld and not ClientStore.ui.inventoryOpen and ClientStore.ui.raidSummary == nil then
-			local activeItem = ClientStore.snapshot.paperdoll[ClientStore.snapshot.activeWeaponSlot]
-			local wDef = if activeItem then WeaponCatalog.get(activeItem.baseId) else nil
+			local wDef = if activeGun then WeaponCatalog.get(activeGun.baseId) else nil
 			if wDef and wDef.fireMode == "Auto" and os.clock() >= nextClientShotAt then
 				fireSingleRound()
 			end
@@ -435,6 +520,13 @@ function WeaponClientController.start(deps: {
 	return {
 		step = step,
 		renderFeedback = renderFeedback,
+		setTriggerHeld = setTriggerHeld,
+		triggerMelee = triggerMelee,
+		triggerReload = triggerReload,
+		triggerSwap = triggerSwap,
+		triggerOrdnance = triggerOrdnance,
+		triggerInteract = triggerInteract,
+		toggleInventory = toggleInventory,
 	}
 end
 

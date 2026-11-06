@@ -19,7 +19,7 @@ local EnemyService = require(script.Parent.EnemyService)
 
 local combatFeedbackRemote: RemoteEvent? = nil
 local raidSummaryRemote: RemoteEvent? = nil
-local playerSprintState: { [Player]: { sprinting: boolean, ads: boolean, dodgeUntil: number } } = {}
+local playerSprintState: { [Player]: { sprinting: boolean, ads: boolean, dodgeUntil: number, nextMeleeAt: number? } } = {}
 local snapshotAccum = 0
 local hazardAccum = 0
 
@@ -157,6 +157,14 @@ function CombatAndWeaponService.damagePlayer(
 
 	local canDown = hasOtherLivingRaidTeammate(player)
 	local res = DamageMath.applyDamage(profile.vitality, packet, canDown)
+
+	if combatFeedbackRemote and attackerPos and res.totalDamage > 0 then
+		combatFeedbackRemote:FireClient(player, {
+			kind = "IncomingHit",
+			from = attackerPos,
+			shieldPopped = res.shieldPopped,
+		})
+	end
 
 	-- Visual Halo Energy Shield Shimmer on the player's character rig
 	local pChar = player.Character
@@ -312,6 +320,11 @@ function CombatAndWeaponService.handleWeaponFire(player: Player, payload: { [str
 
 	local moveSt = playerSprintState[player]
 	local spreadDeg = wStats.spreadDeg * (if moveSt and moveSt.ads then wStats.def.adsSpreadMultiplier else 1.0)
+	local chargeBonus = 1.0
+	if activeItem.baseId == "FerroRail" and type(payload.chargeRatio) == "number" then
+		chargeBonus = 1.0 + math.clamp(payload.chargeRatio, 0, 1) * 0.65
+	end
+	local shotDamage = wStats.damage * chargeBonus
 
 	for pelletIdx = 1, wStats.pellets do
 		local spreadRad = math.rad(spreadDeg)
@@ -326,7 +339,7 @@ function CombatAndWeaponService.handleWeaponFire(player: Player, payload: { [str
 			for _, enm in ipairs(EnemyService.getEnemiesInRadius(endPos, radius, true)) do
 				local distFrac = math.clamp(1 - ((enm.position - endPos).Magnitude / (radius + 2)), 0.35, 1.0)
 				local dmgRes = EnemyService.damageEnemy(enm, player, {
-					amount = wStats.damage * distFrac,
+					amount = shotDamage * distFrac,
 					damageType = wStats.damageType,
 					isHeadshot = false,
 					critMultiplier = 1.0,
@@ -348,7 +361,7 @@ function CombatAndWeaponService.handleWeaponFire(player: Player, payload: { [str
 			local enemy, partName = EnemyService.findFromPart(castResult.Instance)
 			if enemy then
 				local dmgRes = EnemyService.damageEnemy(enemy, player, {
-					amount = wStats.damage,
+					amount = shotDamage,
 					damageType = wStats.damageType,
 					isHeadshot = (partName == "HeadHitbox"),
 					critMultiplier = wStats.critMultiplier,
@@ -476,6 +489,72 @@ function CombatAndWeaponService.handleWeaponAction(player: Player, payload: { [s
 	elseif action == "ToggleOrdnanceType" then
 		profile.ordnanceId = if profile.ordnanceId == "EmpGrenade" then "FragGrenade" else "EmpGrenade"
 		PlayerDataService.notify(player, "Equipped " .. WeaponCatalog.Ordnance[profile.ordnanceId].name, "info")
+
+	elseif action == "MeleeStrike" then
+		if profile.vitality.dead or profile.vitality.downed then
+			return
+		end
+		local st = playerSprintState[player]
+		if not st then
+			st = { sprinting = false, ads = false, dodgeUntil = 0, nextMeleeAt = 0 }
+			playerSprintState[player] = st
+		end
+		if now < (st.nextMeleeAt or 0) then
+			return
+		end
+		st.nextMeleeAt = now + 0.68
+
+		local char = player.Character
+		local root = if char then char:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+		if not root then
+			return
+		end
+
+		local look = if typeof(payload.direction) == "Vector3" and payload.direction.Magnitude > 0.01
+			then payload.direction.Unit
+			else root.CFrame.LookVector
+		local strikeCenter = root.Position + look * 4.8
+		local candidates = EnemyService.getEnemiesInRadius(strikeCenter, 6.2, true)
+		local bestEnemy: EnemyService.EnemyInstance? = nil
+		local bestDist = 999
+		for _, enm in ipairs(candidates) do
+			local d = (enm.position - root.Position).Magnitude
+			if d < bestDist then
+				bestDist = d
+				bestEnemy = enm
+			end
+		end
+
+		if bestEnemy then
+			-- Halo Assassination Backstab check: attacking from behind deals 2.5x critical strike!
+			local enmFwd = Vector3.new(-math.sin(bestEnemy.facingYaw), 0, -math.cos(bestEnemy.facingYaw))
+			local toEnemy = Vector3.new(bestEnemy.position.X - root.Position.X, 0, bestEnemy.position.Z - root.Position.Z)
+			local flatAtk = if toEnemy.Magnitude > 0.05 then toEnemy.Unit else Vector3.new(look.X, 0, look.Z)
+			local isBackstab = (enmFwd:Dot(flatAtk) > 0.30)
+
+			local meleeMult = 1.0 + (profile.aggregatedStats.meleeDamagePct or 0)
+			local baseMelee = 62 * meleeMult * (if isBackstab then 2.5 else 1.0)
+			local res = EnemyService.damageEnemy(bestEnemy, player, {
+				amount = baseMelee,
+				damageType = "Plasma", -- Halo physical shield-bash strips shields cleanly!
+				isHeadshot = isBackstab,
+				critMultiplier = if isBackstab then 1.5 else 1.0,
+				sourceId = tostring(player.UserId),
+			}, if isBackstab then "WeakpointCore" else "TorsoHitbox")
+
+			if combatFeedbackRemote and res.totalDamage > 0 then
+				combatFeedbackRemote:FireClient(player, {
+					kind = "Hitmarker",
+					damage = math.floor(res.totalDamage + 0.5),
+					isCrit = isBackstab or res.isCrit,
+					shieldPopped = res.shieldPopped,
+					shieldHit = (res.shieldDamage > 0 and res.healthDamage == 0),
+					killed = res.killed,
+					backstab = isBackstab,
+					position = bestEnemy.position + Vector3.new(0, 3.6, 0),
+				})
+			end
+		end
 	end
 
 	LootContainerService.syncPlayer(player)

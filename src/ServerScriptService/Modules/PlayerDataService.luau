@@ -16,6 +16,7 @@ local WeaponCatalog = require(ReplicatedStorage.Shared.Weapons.WeaponCatalog)
 local LootRoller = require(ReplicatedStorage.Shared.Loot.LootRoller)
 local GridContainer = require(ReplicatedStorage.Shared.Inventory.GridContainer)
 local DurabilityMath = require(ReplicatedStorage.Shared.Economy.DurabilityMath)
+local SkillTreeCatalog = require(ReplicatedStorage.Shared.Progression.SkillTreeCatalog)
 
 export type WeaponSlotRuntime = {
 	ammo: number,
@@ -53,6 +54,7 @@ export type PlayerProfile = {
 	stash: GridContainer.GridData,
 	secureCase: GridContainer.GridData,
 	contracts: { [string]: ContractProgress },
+	skills: { [string]: number },
 	aggregatedStats: { [string]: any },
 	vitality: DamageMath.VitalityState,
 	weaponRuntime: { [string]: WeaponSlotRuntime },
@@ -96,6 +98,7 @@ end
 
 function PlayerDataService.recomputeStats(profile: PlayerProfile)
 	local agg = LootRoller.aggregateLoadoutStats(profile.paperdoll)
+	SkillTreeCatalog.applySkillBonuses(agg, profile.skills)
 	profile.aggregatedStats = agg
 	DamageMath.syncMaxStats(profile.vitality, agg)
 
@@ -186,6 +189,7 @@ local function buildDefaultProfile(userId: number): PlayerProfile
 		stash = stash,
 		secureCase = secureCase,
 		contracts = contracts,
+		skills = {},
 		aggregatedStats = agg,
 		vitality = vit,
 		weaponRuntime = {
@@ -213,6 +217,7 @@ local function serializeProfileForSave(profile: PlayerProfile): { [string]: any 
 		stash = GridContainer.serialize(profile.stash),
 		secureCase = GridContainer.serialize(profile.secureCase),
 		contracts = profile.contracts,
+		skills = profile.skills,
 	}
 end
 
@@ -245,6 +250,13 @@ local function hydrateSavedProfile(userId: number, saved: { [string]: any }): Pl
 	if type(saved.contracts) == "table" then
 		for k, v in pairs(saved.contracts) do
 			profile.contracts[k] = v
+		end
+	end
+	if type(saved.skills) == "table" then
+		for k, v in pairs(saved.skills) do
+			if type(v) == "number" then
+				profile.skills[k] = math.floor(v)
+			end
 		end
 	end
 	PlayerDataService.recomputeStats(profile)
@@ -393,6 +405,8 @@ function PlayerDataService.buildClientPayload(
 			else nil,
 		weaponRuntime = wRuntimeOut,
 		contracts = profile.contracts,
+		skills = profile.skills,
+		skillPoints = SkillTreeCatalog.getAvailablePoints(profile.level, profile.skills),
 	}
 end
 

@@ -101,26 +101,66 @@ assert(rebuiltCrateItemBtn ~= nil, "Re-rendered crate item card remains clickabl
 rebuiltCrateItemBtn.MouseButton2Click:Fire() -- Right-click quick-transfers & clears held state!
 assert(gui:FindFirstChild("HeldItemGhost").Visible == false, "Right-click quick-transfer clears HeldItemGhost")
 
--- 2. Push WorldState with active Extraction Holdout & Radar Blips + Step RenderStepped
+-- 2. Push WorldState with active Extraction Holdout, Boss Bar, Supply Drop & Co-op Squadmate
 worldEv.OnClientEvent:Fire({
 	beacons = {
 		{ id = "Beacon_Alpha", name = "EXTRACTION ALPHA", state = "BoardingWindow", timer = 12, x = -370, y = 1, z = 370 },
 	},
 	radarBlips = {
-		{ x = -120, y = 2, z = -130, boss = false },
-		{ x = 345, y = 4, z = -345, boss = true },
+		{ x = -120, y = 2, z = -130, boss = false, elite = true },
+		{ x = 345, y = 4, z = -345, boss = true, elite = false },
 	},
-	squad = {},
+	activeBoss = {
+		name = "Warden Goliath",
+		subtitle = "PHASE II • OVERDRIVE",
+		isBoss = true,
+		shield = 180,
+		maxShield = 450,
+		health = 540,
+		maxHealth = 950,
+		x = 345,
+		z = -345,
+	},
+	supplyDrop = {
+		id = "SupplyPod_1",
+		zoneName = "Rusted Rail Yard",
+		timer = 75,
+		x = 255,
+		y = 0,
+		z = 250,
+	},
+	squad = {
+		{ userId = 2002, name = "CoopBuddy", shield = 0, maxShield = 120, health = 25, maxHealth = 100, downed = true, inRaid = true, zoneId = "Zone3", x = -140, y = 2, z = -140 },
+	},
 })
 
--- 3. Trigger Hitmarker, Toast Notification & RenderStepped tick
+local proHud = gui:FindFirstChild("CombatProHud")
+assert(proHud:FindFirstChild("CompassBar") ~= nil, "Halo CompassBar mounted on CombatProHud")
+assert(proHud:FindFirstChild("BossEncounterBar").Visible == true, "BossEncounterBar displays active Warden Goliath encounter")
+assert(proHud:FindFirstChild("SquadCard_1").Visible == true, "SquadCard_1 displays downed co-op teammate status")
+assert(gui:FindFirstChild("TouchControlsHud") ~= nil, "TouchControlsHud mounted cleanly")
+
+-- Exercise [TECH] Raider Specialization tab
+local techTabBtn = rightCol:FindFirstChild("Tab_Tech")
+assert(techTabBtn ~= nil, "Tactical suite exposes [TECH] specialization tab")
+techTabBtn.MouseButton1Click:Fire()
+assert(rightCol:FindFirstChild("TechView").Visible == true, "Clicking Tab_Tech reveals TechView")
+rightCol:FindFirstChild("TechView"):FindFirstChild("Skill_AegisCapacitor").MouseButton1Click:Fire()
+
+-- 3. Trigger Hitmarker (with Backstab!), IncomingHit directional arc, Toast Notification & RenderStepped tick
 feedbackEv.OnClientEvent:Fire({
 	kind = "Hitmarker",
-	damage = 74,
-	isCrit = false,
+	damage = 155,
+	isCrit = true,
+	backstab = true,
 	shieldPopped = true,
 	shieldHit = false,
 	killed = false,
+})
+feedbackEv.OnClientEvent:Fire({
+	kind = "IncomingHit",
+	from = Vector3.new(0, 2, -50),
+	shieldPopped = false,
 })
 notifyEv.OnClientEvent:Fire({
 	message = "Armory Keycard accepted!",

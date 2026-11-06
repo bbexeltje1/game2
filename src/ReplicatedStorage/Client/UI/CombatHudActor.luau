@@ -9,6 +9,7 @@
 --   5. Center Dynamic Bloom Crosshair + Color-Coded Hitmarker + Damage Readout + [E] Contextual Prompt
 
 local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -28,6 +29,7 @@ local CombatHudActor = {}
 function CombatHudActor.create(screenGui: ScreenGui): {
 	actor: LayoutActor.LayoutActorObj,
 	flashHitmarker: (info: { [string]: any }) -> (),
+	flashIncomingHit: (info: { [string]: any }) -> (),
 	showToast: (text: string, tone: string?) -> (),
 	updateRadarHeading: (cameraLookXZ: Vector2, playerPos: Vector3) -> (),
 }
@@ -35,13 +37,34 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 	local actor = LayoutActor.new("CombatProHud", root, true)
 
 	-- =========================================================================
-	-- 1. TOP-CENTER: HALO ENERGY SHIELD + BODY HEALTH + ZONE / EXTRACTION BANNER
+	-- 1. TOP-CENTER: COMPASS TAPE + HALO ENERGY SHIELD + BODY HEALTH + BOSS BAR
 	-- =========================================================================
+	local compassBar = Theme.frame(
+		root,
+		"CompassBar",
+		UDim2.fromOffset(320, 20),
+		UDim2.new(0.5, -160, 0, 4),
+		Theme.bgPanel,
+		0.32
+	)
+	Theme.addCorner(compassBar, 5)
+	local compassText = Theme.label(
+		compassBar,
+		"CompassBearing",
+		"W  •  NW  •  [ 000° N ]  •  NE  •  E",
+		UDim2.fromScale(1, 1),
+		UDim2.fromOffset(0, 0),
+		Enum.Font.GothamBold,
+		10,
+		Theme.shieldCyan,
+		Enum.TextXAlignment.Center
+	)
+
 	local topCluster = Theme.frame(
 		root,
 		"TopVitalityCluster",
 		UDim2.fromOffset(420, 88),
-		UDim2.new(0.5, -210, 0, 14),
+		UDim2.new(0.5, -210, 0, 26),
 		Theme.bgPanel,
 		0.18
 	)
@@ -110,8 +133,8 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 	local extractBanner = Theme.frame(
 		root,
 		"ExtractionBanner",
-		UDim2.fromOffset(420, 34),
-		UDim2.new(0.5, -210, 0, 108),
+		UDim2.fromOffset(420, 32),
+		UDim2.new(0.5, -210, 0, 118),
 		Color3.fromRGB(24, 38, 34),
 		0.12
 	)
@@ -129,6 +152,68 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 		Theme.positiveGreen,
 		Enum.TextXAlignment.Center
 	)
+
+	-- Diablo / Destiny Boss & Champion Elite Encounter Vitality Bar
+	local bossBar = Theme.frame(
+		root,
+		"BossEncounterBar",
+		UDim2.fromOffset(460, 52),
+		UDim2.new(0.5, -230, 0, 154),
+		Color3.fromRGB(24, 18, 30),
+		0.14
+	)
+	bossBar.Visible = false
+	Theme.addCorner(bossBar, 7)
+	Theme.addStroke(bossBar, Theme.scrapAmber, 1.5, 0.15)
+	local bossTitleLbl = Theme.label(
+		bossBar,
+		"BossTitle",
+		"WARDEN GOLIATH  •  PHASE I",
+		UDim2.new(1, -16, 0, 18),
+		UDim2.fromOffset(8, 3),
+		Enum.Font.GothamBold,
+		11,
+		Theme.scrapAmber,
+		Enum.TextXAlignment.Center
+	)
+	local bossShieldBg = Theme.frame(bossBar, "BossShieldBg", UDim2.new(1, -24, 0, 8), UDim2.fromOffset(12, 23), Theme.bgSlot, 0)
+	local bossShieldFill = Theme.frame(bossShieldBg, "Fill", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 0), Theme.shieldCyan, 0)
+	local bossHpBg = Theme.frame(bossBar, "BossHpBg", UDim2.new(1, -24, 0, 12), UDim2.fromOffset(12, 34), Theme.bgSlot, 0)
+	local bossHpFill = Theme.frame(bossHpBg, "Fill", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 0), Theme.healthRed, 0)
+
+	-- Upper-Left Co-op Squad Vitality Cards + Active Buff/Resist Pill
+	local statusPill = Theme.label(
+		root,
+		"StatusPill",
+		"",
+		UDim2.fromOffset(250, 20),
+		UDim2.fromOffset(16, 68),
+		Enum.Font.GothamBold,
+		10,
+		Theme.positiveGreen,
+		Enum.TextXAlignment.Left
+	)
+
+	local squadCards: { { frame: Frame, nameLbl: TextLabel, shFill: Frame, hpFill: Frame } } = {}
+	for i = 1, 3 do
+		local sc = Theme.frame(
+			root,
+			"SquadCard_" .. tostring(i),
+			UDim2.fromOffset(210, 42),
+			UDim2.fromOffset(16, 94 + (i - 1) * 48),
+			Theme.bgPanel,
+			0.22
+		)
+		sc.Visible = false
+		Theme.addCorner(sc, 6)
+		Theme.addStroke(sc, Theme.borderSubtle, 1, 0.3)
+		local nm = Theme.label(sc, "Name", "RAIDER", UDim2.new(1, -12, 0, 16), UDim2.fromOffset(6, 2), Enum.Font.GothamBold, 10, Theme.textPrimary)
+		local sBg = Theme.frame(sc, "ShBg", UDim2.new(1, -12, 0, 6), UDim2.fromOffset(6, 20), Theme.bgSlot, 0)
+		local sFl = Theme.frame(sBg, "Fill", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 0), Theme.shieldCyan, 0)
+		local hBg = Theme.frame(sc, "HpBg", UDim2.new(1, -12, 0, 8), UDim2.fromOffset(6, 29), Theme.bgSlot, 0)
+		local hFl = Theme.frame(hBg, "Fill", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 0), Theme.positiveGreen, 0)
+		table.insert(squadCards, { frame = sc, nameLbl = nm, shFill = sFl, hpFill = hFl })
+	end
 
 	-- =========================================================================
 	-- 2. BOTTOM-LEFT: 25M HALO MOTION TRACKER RADAR + ECONOMY / LEVEL STRIP
@@ -295,7 +380,7 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 	Theme.label(
 		weaponHud,
 		"ControlsHint",
-		"[TAB] Inventory/Bunker  •  [E] Interact  •  [V] Shoulder  •  [C] Slide  •  [ALT] Dodge",
+		"[TAB] Bag/Tech • [E] Use • [F] Melee • [V] Shoulder • [C] Slide • [ALT] Dodge",
 		UDim2.new(1, -12, 0, 14),
 		UDim2.fromOffset(6, 116),
 		Enum.Font.GothamMedium,
@@ -305,13 +390,30 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 	)
 
 	-- =========================================================================
-	-- 4. CENTER SCREEN: DYNAMIC RETICLE, HITMARKER, TOAST & [E] INTERACT PROMPT
+	-- 4. CENTER SCREEN: DYNAMIC RETICLE, RAIL CAPACITOR, DAMAGE DIR & [E] PROMPT
 	-- =========================================================================
 	local reticleRoot = Theme.frame(root, "ReticleRoot", UDim2.fromOffset(60, 60), UDim2.new(0.5, -30, 0.5, -30), Theme.bgRoot, 1)
 	local tickTop = Theme.frame(reticleRoot, "TickTop", UDim2.fromOffset(2, 8), UDim2.fromOffset(29, 14), Theme.shieldCyan, 0.1)
 	local tickBot = Theme.frame(reticleRoot, "TickBot", UDim2.fromOffset(2, 8), UDim2.fromOffset(29, 38), Theme.shieldCyan, 0.1)
 	local tickLeft = Theme.frame(reticleRoot, "TickLeft", UDim2.fromOffset(8, 2), UDim2.fromOffset(14, 29), Theme.shieldCyan, 0.1)
 	local tickRight = Theme.frame(reticleRoot, "TickRight", UDim2.fromOffset(8, 2), UDim2.fromOffset(38, 29), Theme.shieldCyan, 0.1)
+
+	-- Ferro-Rail ADS Charge Capacitor Gauge
+	local railChargeBg = Theme.frame(reticleRoot, "RailChargeBar", UDim2.fromOffset(72, 6), UDim2.fromOffset(-6, 62), Theme.bgSlot, 0.1)
+	railChargeBg.Visible = false
+	Theme.addCorner(railChargeBg, 3)
+	local railChargeFill = Theme.frame(railChargeBg, "Fill", UDim2.fromScale(0, 1), UDim2.fromOffset(0, 0), Theme.scrapAmber, 0)
+	Theme.addCorner(railChargeFill, 3)
+
+	-- Halo Directional Incoming-Hit Indicator Bars (North / South / West / East around reticle)
+	local dmgArcNorth = Theme.frame(reticleRoot, "HitDirNorth", UDim2.fromOffset(34, 4), UDim2.fromOffset(13, -18), Theme.healthRed, 0.15)
+	local dmgArcSouth = Theme.frame(reticleRoot, "HitDirSouth", UDim2.fromOffset(34, 4), UDim2.fromOffset(13, 74), Theme.healthRed, 0.15)
+	local dmgArcWest = Theme.frame(reticleRoot, "HitDirWest", UDim2.fromOffset(4, 34), UDim2.fromOffset(-18, 13), Theme.healthRed, 0.15)
+	local dmgArcEast = Theme.frame(reticleRoot, "HitDirEast", UDim2.fromOffset(4, 34), UDim2.fromOffset(74, 13), Theme.healthRed, 0.15)
+	dmgArcNorth.Visible = false
+	dmgArcSouth.Visible = false
+	dmgArcWest.Visible = false
+	dmgArcEast.Visible = false
 
 	local hitmarkerLbl = Theme.label(
 		reticleRoot,
@@ -353,8 +455,8 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 		root,
 		"ToastNotification",
 		"",
-		UDim2.fromOffset(480, 28),
-		UDim2.new(0.5, -240, 0, 148),
+		UDim2.fromOffset(500, 28),
+		UDim2.new(0.5, -250, 0, 210),
 		Enum.Font.GothamBold,
 		13,
 		Theme.scrapAmber,
@@ -363,14 +465,18 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 	toastLbl.Visible = false
 
 	local hitmarkerHideAt = 0
+	local incomingHideAt = 0
 	local toastHideAt = 0
 	local lastShieldVal = 100
 	local wasShieldStunned = false
 	local nextLowShieldBeepAt = 0
+	local lastIncomingWorldPos: Vector3? = nil
+	local lastCamForward = Vector2.new(0, -1)
+	local lastPlayerPos = Vector3.zero
 
-	-- Halo `hud_nav_points` 3D Screen-Projected Waypoint Pool (4 Extraction Beacons)
+	-- Halo `hud_nav_points` 3D Screen-Projected Waypoint Pool (4 Extraction Beacons + 1 Supply Pod)
 	local navpointWidgets: { { box: Frame, lbl: TextLabel } } = {}
-	for i = 1, 4 do
+	for i = 1, 5 do
 		local navBox = Theme.frame(
 			root,
 			"Navpoint_" .. tostring(i),
@@ -471,6 +577,57 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 
 		economyText.Text = string.format("LV %d  •  %d SCRAP  •  %d CR", snap.level, snap.scrap, snap.credits)
 
+		-- Status Pill (Rad/Spore Resist + Unspent Tech Points callout)
+		local resistPct = math.floor(((snap.stats and snap.stats.hazardResist) or 0) * 100 + 0.5)
+		local pts = snap.skillPoints or 0
+		local pillParts: { string } = {}
+		if resistPct > 0 then
+			table.insert(pillParts, string.format("☢ HAZARD RESIST %d%%", resistPct))
+		end
+		if pts > 0 then
+			table.insert(pillParts, string.format("⚡ %d TECH PT%s [TAB -> TECH]", pts, if pts == 1 then "" else "S"))
+		end
+		statusPill.Text = table.concat(pillParts, "  •  ")
+
+		-- Boss / Champion Elite Encounter Bar
+		local boss = ClientStore.world.activeBoss
+		if snap.inRaid and boss then
+			bossBar.Visible = true
+			bossTitleLbl.Text = string.format("☠ %s  •  %s", string.upper(tostring(boss.name)), tostring(boss.subtitle or ""))
+			bossShieldFill.Size = UDim2.fromScale(
+				if (boss.maxShield or 0) > 0 then math.clamp(boss.shield / boss.maxShield, 0, 1) else 0,
+				1
+			)
+			bossHpFill.Size = UDim2.fromScale(
+				math.clamp(boss.health / math.max(1, boss.maxHealth or 1), 0, 1),
+				1
+			)
+		else
+			bossBar.Visible = false
+		end
+
+		-- Co-op Squadmate Vitality Stack (up to 3 allies excluding LocalPlayer)
+		local localUid = Players.LocalPlayer.UserId
+		local allyIdx = 0
+		for _, sq in ipairs(ClientStore.world.squad) do
+			if sq.userId ~= localUid and allyIdx < #squadCards then
+				allyIdx += 1
+				local card = squadCards[allyIdx]
+				card.frame.Visible = true
+				local tag = if sq.downed
+					then " ⚠ DOWNED! [E] REVIVE"
+					elseif sq.inRaid then (" • " .. tostring(sq.zoneId or "Surface"))
+					else " • Bunker"
+				card.nameLbl.Text = tostring(sq.name) .. tag
+				card.nameLbl.TextColor3 = if sq.downed then Theme.negativeRed else Theme.textPrimary
+				card.shFill.Size = UDim2.fromScale(math.clamp((sq.shield or 0) / math.max(1, sq.maxShield or 1), 0, 1), 1)
+				card.hpFill.Size = UDim2.fromScale(math.clamp((sq.health or 0) / math.max(1, sq.maxHealth or 1), 0, 1), 1)
+			end
+		end
+		for i = allyIdx + 1, #squadCards do
+			squadCards[i].frame.Visible = false
+		end
+
 		-- Active & Holstered Weapons
 		local activeSlot = snap.activeWeaponSlot
 		local otherSlot = if activeSlot == "Primary1" then "Primary2" else "Primary1"
@@ -552,9 +709,25 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 			hitmarkerHideAt = 0
 			hitmarkerLbl.Visible = false
 		end
+		if incomingHideAt > 0 and now >= incomingHideAt then
+			incomingHideAt = 0
+			dmgArcNorth.Visible = false
+			dmgArcSouth.Visible = false
+			dmgArcWest.Visible = false
+			dmgArcEast.Visible = false
+		end
 		if toastHideAt > 0 and now >= toastHideAt then
 			toastHideAt = 0
 			toastLbl.Visible = false
+		end
+
+		local chg = ClientStore.ui.railCharge or 0
+		if chg > 0.02 then
+			railChargeBg.Visible = true
+			railChargeFill.Size = UDim2.fromScale(chg, 1)
+			railChargeFill.BackgroundColor3 = if chg >= 0.98 then Theme.positiveGreen else Theme.scrapAmber
+		else
+			railChargeBg.Visible = false
 		end
 
 		local gap = math.floor(8 + ClientStore.ui.reticleBloom * 14)
@@ -617,7 +790,12 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 
 		SoundController.playHitmarker(info.isCrit == true, info.shieldPopped == true, info.killed == true)
 
-		if info.killed then
+		if info.backstab then
+			hitmarkerLbl.Text = "★ ASSASSINATION! (" .. dmg .. ")"
+			hitmarkerLbl.TextColor3 = Theme.scrapAmber
+			popupColor = Theme.scrapAmber
+			popupText = "★ BACKSTAB " .. dmg
+		elseif info.killed then
 			hitmarkerLbl.Text = "✕ ELIMINATED (" .. dmg .. ")"
 			hitmarkerLbl.TextColor3 = Theme.positiveGreen
 			popupColor = Theme.positiveGreen
@@ -664,14 +842,45 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 		end
 	end
 
+	local function flashIncomingHit(info: { [string]: any })
+		local srcPos = info.from :: Vector3?
+		if not srcPos then
+			return
+		end
+		lastIncomingWorldPos = srcPos
+		incomingHideAt = os.clock() + 0.55
+		local dx = srcPos.X - lastPlayerPos.X
+		local dz = srcPos.Z - lastPlayerPos.Z
+		local fwdDot = dx * lastCamForward.X + dz * lastCamForward.Y
+		local rightDot = dx * (-lastCamForward.Y) + dz * lastCamForward.X
+
+		dmgArcNorth.Visible = (fwdDot >= math.abs(rightDot) * 0.6)
+		dmgArcSouth.Visible = (fwdDot <= -math.abs(rightDot) * 0.6)
+		dmgArcEast.Visible = (rightDot >= math.abs(fwdDot) * 0.6)
+		dmgArcWest.Visible = (rightDot <= -math.abs(fwdDot) * 0.6)
+	end
+
+	local COMPASS_DIRS = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
 	local function updateRadarHeading(cameraLookXZ: Vector2, playerPos: Vector3)
+		lastCamForward = cameraLookXZ
+		lastPlayerPos = playerPos
+
+		-- Update Top-Center Halo Compass Bearing (0° = North = -Z)
+		local angleRad = math.atan2(cameraLookXZ.X, -cameraLookXZ.Y)
+		local deg = (math.floor(math.deg(angleRad) + 0.5) % 360 + 360) % 360
+		local dirIdx = (math.floor((deg + 22.5) / 45) % 8) + 1
+		local prevDir = COMPASS_DIRS[((dirIdx - 2) % 8) + 1]
+		local curDir = COMPASS_DIRS[dirIdx]
+		local nextDir = COMPASS_DIRS[(dirIdx % 8) + 1]
+		compassText.Text = string.format("%s   •   [ %03d° %s ]   •   %s", prevDir, deg, curDir, nextDir)
+
 		local range = Config.hud.motionTrackerRangeStuds
 		local radiusPx = 68
 		local fwdX, fwdZ = cameraLookXZ.X, cameraLookXZ.Y
 		local rightX, rightZ = -fwdZ, fwdX
 
 		local used = 0
-		-- Enemy blips (red / orange for boss)
+		-- Enemy blips (red / purple for elite / orange for boss)
 		for _, blip in ipairs(ClientStore.world.radarBlips) do
 			if used >= #radarDots then
 				break
@@ -685,7 +894,10 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 				local localY = -(dx * fwdX + dz * fwdZ) / range
 				local dot = radarDots[used]
 				dot.Visible = true
-				dot.BackgroundColor3 = if blip.boss then Theme.scrapAmber else Theme.healthRed
+				dot.BackgroundColor3 = if blip.boss
+					then Theme.scrapAmber
+					elseif blip.elite then Theme.plasmaViolet
+					else Theme.healthRed
 				dot.Position = UDim2.fromOffset(74 + math.floor(localX * radiusPx), 74 + math.floor(localY * radiusPx))
 			end
 		end
@@ -714,14 +926,15 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 			radarDots[i].Visible = false
 		end
 
-		-- Project 3D Halo `hud_nav_points` Extraction Waypoints onto screen when on surface
+		-- Project 3D Halo `hud_nav_points` Extraction Beacons (1..4) & Orbital Supply Pod (5) onto screen
 		local showNav = ClientStore.snapshot.inRaid
 			and not ClientStore.ui.inventoryOpen
 			and ClientStore.ui.raidSummary == nil
 		local okCam, cam = pcall(function()
 			return Workspace.CurrentCamera
 		end)
-		for idx, w in ipairs(navpointWidgets) do
+		for idx = 1, 4 do
+			local w = navpointWidgets[idx]
 			local b = ClientStore.world.beacons[idx]
 			if showNav and okCam and cam and b then
 				local okProj, screenPt, onScreen = pcall(function()
@@ -743,11 +956,33 @@ function CombatHudActor.create(screenGui: ScreenGui): {
 				w.box.Visible = false
 			end
 		end
+
+		local podWidget = navpointWidgets[5]
+		local pod = ClientStore.world.supplyDrop
+		if showNav and okCam and cam and pod and podWidget then
+			local okProj, screenPt, onScreen = pcall(function()
+				return cam:WorldToViewportPoint(Vector3.new(pod.x, (pod.y or 0) + 22, pod.z))
+			end)
+			if okProj and screenPt and onScreen and screenPt.Z > 1 then
+				local distM = math.floor(
+					math.sqrt((pod.x - playerPos.X) ^ 2 + (pod.z - playerPos.Z) ^ 2) * 0.35 + 0.5
+				)
+				podWidget.box.Visible = true
+				podWidget.box.Position = UDim2.fromOffset(math.floor(screenPt.X - 74), math.floor(screenPt.Y - 11))
+				podWidget.lbl.Text = string.format("★ SUPPLY POD • %dm", distM)
+				podWidget.lbl.TextColor3 = Theme.scrapAmber
+			else
+				podWidget.box.Visible = false
+			end
+		elseif podWidget then
+			podWidget.box.Visible = false
+		end
 	end
 
 	return {
 		actor = actor,
 		flashHitmarker = flashHitmarker,
+		flashIncomingHit = flashIncomingHit,
 		showToast = showToast,
 		updateRadarHeading = updateRadarHeading,
 	}

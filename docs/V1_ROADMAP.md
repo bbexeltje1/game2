@@ -3,7 +3,7 @@
 > **Working Title:** *ASHFALL: Bastion Protocol* (configurable in `Shared/Config.luau`)  
 > **Engine & Toolchain:** Roblox (Rojo 7.7.1 + `--!strict` Luau + `luau-web` automated test harness + GitHub Actions CI)  
 > **Visual Strategy for V1:** 100% Procedural Graybox (`BasePart` silhouettes + standardized `Attachment` contracts) engineered for zero-code `MeshPart` swapping post-V1.  
-> **V1 Implementation Status:** **Milestones M1–M8 Complete (`35` `--!strict` Luau source files, all unit/client/place CI checks green)** — see `- [x]` / `- [ ]` checklists below.
+> **V1 Implementation Status:** **Milestones M1–M9 Complete (`39` `--!strict` Luau source files, all unit/client/place CI checks green)** — see `- [x]` / `- [ ]` checklists below.
 
 ---
 
@@ -17,7 +17,8 @@
 - [x] **Milestone 6** — `Nerve`-Driven AI Enemy Factions (6 Archetypes + Raycast Steering) & 3-Phase *Warden Goliath* Sector Boss
 - [x] **Milestone 7** — Co-op Extraction Holdout Beacons (Zones 1–4), Keep-Equipped + `2x2` Secure Case + `-20%` Durability Tax & Bunker Stations
 - [x] **Milestone 8** — Lazy `DataStore` Persistence (Studio Offline Safe), Co-op Scaling, `SoundController` Studio Audio Pool & CI Verification
-- [ ] **Post-V1 Art & Platform Pass** — High-detail `MeshPart` asset swaps into `ReplicatedStorage.Assets`, custom character animations & Gamepad/Mobile controls
+- [x] **Milestone 9** — Halo Melee & Backstab, Ferro-Rail Charge, Diablo Affixed Champion Elites, Orbital Supply Drop Events, Raider Tech Tree, Compass/Squad/Boss HUD, Procedural Animator & Gamepad/Mobile Touch Support
+- [ ] **Post-V1 Art Swap Pass** — Optional high-detail `MeshPart` models dropped into `ReplicatedStorage.Assets` using locked `PrefabBuilder` contracts
 
 ---
 
@@ -203,3 +204,13 @@ A **Third-Person Post-Apocalyptic Co-op PvE Extraction Looter-Shooter** combinin
 - [x] `ServerScriptService/Modules/PlayerDataService.luau` (Rule #2 compliant lazy `DataStore` persistence + Studio offline fallback + `BindToClose`).
 - [x] Co-op extraction scaling, `[E]` teammate revive, `Client/Audio/SoundController.luau` Studio audio pool, and GitHub Actions CI (`rojo build`, `npm test`, PowerShell syntax check, `place-check.mjs`).
 - [x] **Verification Gate**: Full CI workflow green on `arena/fe593977-game2`.
+
+### Milestone 9 — Combat Sandbox Depth, Diablo Champion Elites, Dynamic Supply Pods, Tech Tree & Cross-Device Controls
+- [x] **Halo Golden Triangle Completion**: `[F]` / `ButtonR3` Tactical Melee Strike with forward lunge & `2.5x` **Backstab Assassination Crit**, plus **Ferro-Rail Marksman** `[RMB]` ADS `0–100%` Charge Capacitor (`1.0x -> 1.65x` surge).
+- [x] **Diablo Champion Elite Monsters (`EnemyCatalog.EliteAffixes`)**: Zones 2–4 roll `[OVERCHARGED]`, `[VAMPIRIC]`, `[BERSERKER]`, `[MOLTEN]`, and `[SHIELD-LINK]` Elite Champions with glowing `EliteCrown` halos, `2.0x` XP/Credits, and bonus `TreasureClass` drops.
+- [x] **Dynamic Wasteland World Events (`SupplyDropService.luau`)**: Periodic **Orbital Supply Pods** (`Container.SupplyPod`) crashing into Zones 1–4 with golden sky-flares, Elite ambush guards, and a 3D HUD Supply Pod Navpoint.
+- [x] **Raider Progression Tech Tree (`Shared/Progression/SkillTreeCatalog.luau` + `[TECH]` Tab)**: 6 Rank-5 specializations (*Aegis Shield Capacitor*, *Precision Targeting Core*, *Cryo-Vent Heatsinks*, *Exo-Thruster Actuators*, *Lead-Lined Bioweave*, *Prospector's Loot Scanner*) persisted in `PlayerDataService` with free Bunker respec.
+- [x] **Complete Pro-HUD (`CombatHudActor.luau`)**: Top-Center **Halo Compass Bearing Tape**, **Boss & Elite Encounter Vitality/Phase Bar**, **Co-op Squadmate Vitality Cards**, **Directional Incoming-Hit Arc**, and Hazard/Tech status pills.
+- [x] **Procedural Combat & World Animator (`ProceduralAnimator.luau`)** + **Gamepad & Mobile Touch HUD (`TouchControlsActor.luau`)**: Spring weapon recoil/ADS/reload/melee animation, levitating anomaly crystals, full controller bindings (`Thumbstick2`, `R2/L2`, `R3/L3`, `DPad`), and automatic Mobile/Tablet touch pad.
+- [x] **Verification Gate**: Expanded `tests/loot-and-economy.spec.luau` & `tests/client-interaction.spec.luau` + full GitHub Actions `rojo build` & `place-check` green.
+

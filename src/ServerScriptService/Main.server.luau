@@ -32,6 +32,7 @@ local WorldBuilderService = require(Modules.WorldBuilderService)
 local LootContainerService = require(Modules.LootContainerService)
 local HazardZoneService = require(Modules.HazardZoneService)
 local EnemyService = require(Modules.EnemyService)
+local SupplyDropService = require(Modules.SupplyDropService)
 local ExtractionService = require(Modules.ExtractionService)
 local CombatAndWeaponService = require(Modules.CombatAndWeaponService)
 local BunkerStationService = require(Modules.BunkerStationService)
@@ -43,6 +44,7 @@ LootContainerService.init(worldRefs.containersFolder, worldRefs.dropsFolder)
 HazardZoneService.init(worldRefs.worldRoot)
 CombatAndWeaponService.init(remoteMap.CombatFeedback, remoteMap.RaidSummary)
 EnemyService.init(worldRefs.enemiesFolder, remoteMap.CombatFeedback, CombatAndWeaponService.damagePlayer)
+SupplyDropService.init()
 ExtractionService.init(worldRefs.beaconsFolder, remoteMap.RaidSummary)
 
 -- 4. Bind Client -> Server Remote Intents
@@ -139,6 +141,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 	LootContainerService.tick(clampedDt)
 	HazardZoneService.tick(clampedDt, CombatAndWeaponService.damagePlayer)
 	EnemyService.tick(clampedDt)
+	SupplyDropService.tick(clampedDt)
 	ExtractionService.tick(clampedDt)
 	CombatAndWeaponService.tick(clampedDt)
 
@@ -158,6 +161,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 				maxHealth = prof.vitality.maxHealth,
 				downed = prof.vitality.downed,
 				inRaid = prof.inRaid,
+				zoneId = prof.currentZoneId,
 				x = if r then math.floor(r.Position.X) else 0,
 				y = if r then math.floor(r.Position.Y) else -116,
 				z = if r then math.floor(r.Position.Z) else 0,
@@ -166,6 +170,8 @@ RunService.Heartbeat:Connect(function(dt: number)
 		remoteMap.WorldState:FireAllClients({
 			beacons = ExtractionService.buildBeaconSnapshots(),
 			radarBlips = EnemyService.buildRadarBlips(),
+			activeBoss = EnemyService.buildActiveBossSnapshot(),
+			supplyDrop = SupplyDropService.buildSnapshot(),
 			squad = squad,
 		})
 	end

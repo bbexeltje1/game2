@@ -5,6 +5,7 @@
 -- States per Enemy NerveKeeper:
 --   "Patrol" -> "Engage" -> "SniperTelegraph" -> "ShieldBreakEvade" -> "BossOverdrive" -> "Dead"
 
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -33,6 +34,8 @@ export type EnemyInstance = {
 	strafeSign: number,
 	attackCooldown: number,
 	bossPhase: number,
+	eliteAffix: string?,
+	linkTimer: number,
 	vitality: DamageMath.VitalityState,
 	model: Model,
 	nerve: Nerve.NerveKeeper<any>,
@@ -79,6 +82,8 @@ local function syncRigTransform(enemy: EnemyInstance)
 			elseif child.Name == "ShieldBubblePart" then
 				child.CFrame = baseCf * CFrame.new(0, 0.1 * s, 0)
 				child.Transparency = if enemy.vitality.shield > 0 then 0.62 else 1.0
+			elseif child.Name == "EliteCrown" then
+				child.CFrame = baseCf * CFrame.new(0, 3.25 * s, 0) * CFrame.Angles(0, os.clock() * 2.2, math.rad(90))
 			end
 		end
 	end
@@ -168,12 +173,16 @@ local function fireEnemyAttack(enemy: EnemyInstance, targetPlayer: Player, targe
 	local hitRoll = aiRng:nextFloat()
 	local hitChance = if enemy.def.hasSniperTelegraph then 0.85 else 0.72
 	if hitRoll <= hitChance then
+		local dmgOut = enemy.def.attackDamage * mult * (if enemy.eliteAffix then 1.15 else 1.0)
 		onDamagePlayerCallback(targetPlayer, {
-			amount = enemy.def.attackDamage * mult,
+			amount = dmgOut,
 			damageType = enemy.def.damageType,
 			isHeadshot = false,
 			sourceId = enemy.id,
 		}, enemy.position)
+		if enemy.eliteAffix == "Vampiric" and not enemy.vitality.dead then
+			enemy.vitality.health = math.min(enemy.vitality.maxHealth, enemy.vitality.health + dmgOut * 0.45)
+		end
 	end
 	if enemy.archetypeId == "SporeHazmat" then
 		HazardZoneService.spawnAcidPool(Vector3.new(targetPos.X, 0.25, targetPos.Z), 9.5, 10, 6.5)
@@ -241,12 +250,29 @@ local ENEMY_NERVES: { [string]: Nerve.NerveHandler<EnemyInstance> } = {
 			moveVec += right * (0.55 * self.strafeSign)
 		end
 		if moveVec.Magnitude > 0.05 then
-			advanceEnemyPosition(self, moveVec, self.def.moveSpeed * dt)
+			local affixDef = if self.eliteAffix then EnemyCatalog.EliteAffixes[self.eliteAffix] else nil
+			local spdMult = if affixDef then affixDef.speedMult else 1.0
+			advanceEnemyPosition(self, moveVec, self.def.moveSpeed * spdMult * dt)
 		end
 		-- Tether max 145 studs from camp home so enemies don't wander off the map
 		local fromHome = self.position - self.homePos
 		if fromHome.Magnitude > 145 then
 			self.position = self.homePos + fromHome.Unit * 145
+		end
+
+		-- Elite Affix `[SHIELD-LINK]`: periodically restores +25 Energy Shield to nearby allies!
+		if self.eliteAffix == "ShieldLink" then
+			self.linkTimer -= dt
+			if self.linkTimer <= 0 then
+				self.linkTimer = 3.2
+				for _, ally in pairs(enemies) do
+					if not ally.isDummy and not ally.vitality.dead and ally.vitality.maxShield > 0 then
+						if (ally.position - self.position).Magnitude <= 24 then
+							ally.vitality.shield = math.min(ally.vitality.maxShield, ally.vitality.shield + 25)
+						end
+					end
+				end
+			end
 		end
 
 		self.attackCooldown = math.max(0, self.attackCooldown - dt)
@@ -260,7 +286,9 @@ local ENEMY_NERVES: { [string]: Nerve.NerveHandler<EnemyInstance> } = {
 				keeper:setNerve("SniperTelegraph")
 				return
 			end
-			self.attackCooldown = self.def.attackInterval
+			local affixDef = if self.eliteAffix then EnemyCatalog.EliteAffixes[self.eliteAffix] else nil
+			local cdMult = if affixDef then affixDef.cooldownMult else 1.0
+			self.attackCooldown = self.def.attackInterval * cdMult
 			fireEnemyAttack(self, target, targetPos, if self.bossPhase >= 2 then 1.25 else 1.0)
 		end
 
@@ -343,33 +371,75 @@ local ENEMY_NERVES: { [string]: Nerve.NerveHandler<EnemyInstance> } = {
 	Dead = function(_self, _keeper, _dt) end,
 }
 
-function EnemyService.spawnEnemy(archetypeId: string, pos: Vector3, campId: string?): EnemyInstance
+function EnemyService.spawnEnemy(archetypeId: string, pos: Vector3, campId: string?, forceEliteAffix: string?): EnemyInstance
 	local def = EnemyCatalog.Enemies[archetypeId] or EnemyCatalog.Enemies.AshScavenger
 	enemySeq += 1
 	local id = "enm_" .. tostring(enemySeq)
 
+	-- Roll Diablo Champion Monster Affix in Zones 2-4 (or use explicit forceEliteAffix)
+	local eliteAffix: string? = forceEliteAffix
+	if not eliteAffix and not def.isBoss then
+		local zone = WorldZones.getZoneAtPosition(pos)
+		local chance = if zone and zone.id == "Zone4"
+			then 0.36
+			elseif zone and zone.id == "Zone3" then 0.28
+			elseif zone and zone.id == "Zone2" then 0.18
+			else 0.0
+		if chance > 0 and aiRng:nextFloat() <= chance then
+			local order = EnemyCatalog.EliteOrder
+			eliteAffix = order[aiRng:nextInt(1, #order)]
+		end
+	end
+
+	local affixDef = if eliteAffix then EnemyCatalog.EliteAffixes[eliteAffix] else nil
+	local displayName = if affixDef then string.format("★ [%s] %s", affixDef.tag, def.name) else def.name
+	local effScale = def.scale * (if affixDef then 1.12 else 1.0)
+	local effMaxShield = math.floor(
+		(if affixDef and def.maxShield == 0 and eliteAffix == "Overcharged" then 80 else def.maxShield)
+			* (if affixDef then affixDef.shieldMult else 1.0)
+	)
+	local effMaxHealth = math.floor(def.maxHealth * (if affixDef then affixDef.healthMult else 1.0))
+
 	local model = PrefabBuilder.buildEnemyRig({
 		id = def.id,
-		name = def.name,
-		scale = def.scale,
+		name = displayName,
+		scale = effScale,
 		bodyColor = def.bodyColor,
-		accentColor = def.accentColor,
-		hasShield = (def.maxShield > 0),
+		accentColor = if affixDef then affixDef.color else def.accentColor,
+		hasShield = (effMaxShield > 0),
 		hasFrontPlate = def.hasFrontShieldPlate,
-		isBoss = def.isBoss,
+		isBoss = def.isBoss or (affixDef ~= nil),
 	})
 	model.Name = id
 	model:SetAttribute("EnemyId", id)
 	model:SetAttribute("ArchetypeId", def.id)
+	if eliteAffix then
+		model:SetAttribute("EliteAffix", eliteAffix)
+	end
+
+	if affixDef then
+		local crown = Instance.new("Part")
+		crown.Name = "EliteCrown"
+		crown.Shape = Enum.PartType.Cylinder
+		crown.Size = Vector3.new(0.24, 3.2 * effScale, 3.2 * effScale)
+		crown.Material = Enum.Material.Neon
+		crown.Color = Color3.fromRGB(affixDef.color.r, affixDef.color.g, affixDef.color.b)
+		crown.Transparency = 0.25
+		crown.Anchored = true
+		crown.CanCollide = false
+		crown.CanQuery = false
+		crown.Parent = model
+	end
+
 	if enemiesFolder then
 		model.Parent = enemiesFolder
 	end
 
 	local vit = DamageMath.newVitality({
-		maxShield = def.maxShield,
-		shieldRegenRate = def.shieldRegenRate,
+		maxShield = effMaxShield,
+		shieldRegenRate = if def.shieldRegenRate > 0 then def.shieldRegenRate else 18,
 		shieldStunDelay = def.shieldStunDelay,
-		maxHealth = def.maxHealth,
+		maxHealth = effMaxHealth,
 		armorRating = def.armorRating,
 	})
 
@@ -385,6 +455,8 @@ function EnemyService.spawnEnemy(archetypeId: string, pos: Vector3, campId: stri
 		strafeSign = 1,
 		attackCooldown = 0.8,
 		bossPhase = 1,
+		eliteAffix = eliteAffix,
+		linkTimer = 2.0,
 		vitality = vit,
 		model = model,
 	}
@@ -462,6 +534,8 @@ local function spawnRangeDummies()
 			strafeSign = 1,
 			attackCooldown = 99,
 			bossPhase = 1,
+			eliteAffix = nil,
+			linkTimer = 0,
 			vitality = vit,
 			model = model,
 		}
@@ -575,6 +649,29 @@ function EnemyService.damageEnemy(
 		return res
 	end
 
+	-- Elite Affix `[OVERCHARGED]`: discharges an EMP Nova when its Energy Shield breaks!
+	if res.shieldPopped and enemy.eliteAffix == "Overcharged" and onDamagePlayerCallback then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local c = p.Character
+			local r = if c then c:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+			if r and (r.Position - enemy.position).Magnitude <= 16 then
+				onDamagePlayerCallback(p, {
+					amount = 28,
+					damageType = "Plasma",
+					sourceId = enemy.id,
+				}, enemy.position)
+			end
+		end
+		if combatFeedbackRemote then
+			combatFeedbackRemote:FireAllClients({
+				kind = "ShieldNova",
+				position = enemy.position,
+				radius = 16,
+				damageType = "Plasma",
+			})
+		end
+	end
+
 	if res.shieldPopped and enemy.def.canEvadeOnShieldBreak and not res.killed then
 		enemy.strafeSign = -enemy.strafeSign
 		enemy.nerve:setNerve("ShieldBreakEvade")
@@ -592,13 +689,16 @@ function EnemyService.damageEnemy(
 			end
 		end
 
+		local isElite = (enemy.eliteAffix ~= nil)
+		local rewardMult = if isElite then 2.0 else 1.0
 		local killerProfile = if attacker then PlayerDataService.get(attacker) else nil
-		local rarityFind = if killerProfile then (killerProfile.aggregatedStats.rarityFind or 0) else 0
+		local rarityFind = (if killerProfile then (killerProfile.aggregatedStats.rarityFind or 0) else 0)
+			+ (if isElite then 0.35 else 0)
 
 		if attacker and killerProfile then
 			killerProfile.kills += 1
-			killerProfile.credits += enemy.def.creditReward
-			PlayerDataService.grantXp(killerProfile, enemy.def.xpReward)
+			killerProfile.credits += math.floor(enemy.def.creditReward * rewardMult)
+			PlayerDataService.grantXp(killerProfile, math.floor(enemy.def.xpReward * rewardMult))
 			PlayerDataService.recordContractEvent(killerProfile, "KillAny", "Any", 1)
 			PlayerDataService.recordContractEvent(killerProfile, "KillArchetype", enemy.def.id, 1)
 
@@ -619,7 +719,49 @@ function EnemyService.damageEnemy(
 			LootContainerService.syncPlayer(attacker)
 		end
 
-		for _ = 1, enemy.def.dropCount do
+		-- Elite Affix `[MOLTEN]`: leaves a delayed 1.4s slag bomb on death!
+		if enemy.eliteAffix == "Molten" then
+			local deathPos = enemy.position
+			local warnBall = Instance.new("Part")
+			warnBall.Name = "MoltenCoreWarning"
+			warnBall.Shape = Enum.PartType.Ball
+			warnBall.Size = Vector3.new(4.5, 4.5, 4.5)
+			warnBall.Position = deathPos + Vector3.new(0, 2.2, 0)
+			warnBall.Material = Enum.Material.Neon
+			warnBall.Color = Color3.fromRGB(255, 108, 36)
+			warnBall.Transparency = 0.25
+			warnBall.Anchored = true
+			warnBall.CanCollide = false
+			warnBall.CanQuery = false
+			warnBall.Parent = Workspace
+			Debris:AddItem(warnBall, 1.5)
+			task.delay(1.4, function()
+				if onDamagePlayerCallback then
+					for _, p in ipairs(Players:GetPlayers()) do
+						local c = p.Character
+						local r = if c then c:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+						if r and (r.Position - deathPos).Magnitude <= 16 then
+							onDamagePlayerCallback(p, {
+								amount = 42,
+								damageType = "Explosive",
+								sourceId = "MoltenSlag",
+							}, deathPos)
+						end
+					end
+				end
+				if combatFeedbackRemote then
+					combatFeedbackRemote:FireAllClients({
+						kind = "OrdnanceBlast",
+						position = deathPos,
+						radius = 16,
+						damageType = "Explosive",
+					})
+				end
+			end)
+		end
+
+		local totalDrops = enemy.def.dropCount + (if isElite then 1 else 0)
+		for _ = 1, totalDrops do
 			local dropItem = LootRoller.rollFromTreasureClass(enemy.def.treasureClass, aiRng, rarityFind)
 			LootContainerService.spawnWorldDrop(dropItem, enemy.position)
 		end
@@ -672,7 +814,7 @@ function EnemyService.tick(dt: number)
 	end
 end
 
-function EnemyService.buildRadarBlips(): { { x: number, y: number, z: number, boss: boolean } }
+function EnemyService.buildRadarBlips(): { { x: number, y: number, z: number, boss: boolean, elite: boolean? } }
 	local blips = {}
 	for _, enm in pairs(enemies) do
 		if not enm.isDummy and not enm.vitality.dead then
@@ -681,10 +823,47 @@ function EnemyService.buildRadarBlips(): { { x: number, y: number, z: number, bo
 				y = math.floor(enm.position.Y),
 				z = math.floor(enm.position.Z),
 				boss = enm.def.isBoss,
+				elite = (enm.eliteAffix ~= nil),
 			})
 		end
 	end
 	return blips
+end
+
+function EnemyService.buildActiveBossSnapshot(): { [string]: any }?
+	local chosen: EnemyInstance? = nil
+	for _, enm in pairs(enemies) do
+		if not enm.isDummy and not enm.vitality.dead and (enm.def.isBoss or enm.eliteAffix ~= nil) then
+			local nearPlayer, _, _ = findNearestSurfacePlayer(enm.position, 145)
+			if nearPlayer then
+				if not chosen or (enm.def.isBoss and not chosen.def.isBoss) then
+					chosen = enm
+				end
+			end
+		end
+	end
+	if not chosen then
+		return nil
+	end
+	local affixDef = if chosen.eliteAffix then EnemyCatalog.EliteAffixes[chosen.eliteAffix] else nil
+	local subtitle = if chosen.def.isBoss
+		then (if chosen.bossPhase == 3
+			then "PHASE III • REACTOR SURGE"
+			elseif chosen.bossPhase == 2 then "PHASE II • OVERDRIVE"
+			else "PHASE I • SHIELDED ARTILLERY")
+		elseif affixDef then ("CHAMPION ELITE • " .. affixDef.tag)
+		else chosen.def.title
+	return {
+		name = chosen.def.name,
+		subtitle = subtitle,
+		isBoss = chosen.def.isBoss,
+		shield = math.floor(chosen.vitality.shield + 0.5),
+		maxShield = chosen.vitality.maxShield,
+		health = math.floor(chosen.vitality.health + 0.5),
+		maxHealth = chosen.vitality.maxHealth,
+		x = math.floor(chosen.position.X),
+		z = math.floor(chosen.position.Z),
+	}
 end
 
 return EnemyService
